@@ -1,0 +1,2 @@
+# pj_python_interview_questions_and_answers
+Python interview questions and answers
