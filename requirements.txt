@@ -1,0 +1,8 @@
+mkdocs
+mkdocs-git-revision-date-localized-plugin
+mkdocs-minify-plugin
+mkdocs-material
+mkdocs-section-index
+pymdown-extensions
+mkdocs-autolinks-plugin
+mkdocs-exclude-search

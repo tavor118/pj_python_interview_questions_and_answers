@@ -1,0 +1,172 @@
+site_name: Python Questions and Answers
+site_author: Andrew
+site_url: https://tavor118.github.io/python-questions-and-answers
+
+
+nav:
+  - Introduction: index.md
+  - Python:
+    - python.md
+    - General: python/general.md
+    - Syntax: python/syntax.md
+    - Data Types: python/data_types.md
+    - Sequences: python/sequences.md
+    - Set and Dict: python/set_and_dict.md
+    - Loops: python/loops.md
+    - Functions: python/functions.md
+    - Decorators: python/decorators.md
+    - Iterator and Generator: python/iterator_and_generator.md
+    - Class and Object: python/class_and_object.md
+    - Metaclass: python/metaclass.md
+    - Namespace and Context Manager: python/namespace_and_context_manager.md
+    - Modules and Packets: python/modules_and_packets.md
+    - Exceptions: python/exceptions.md
+    - Files and IO: python/files_and_io.md
+    - Async: python/async.md
+    - GIL Threads Processes: python/gil_threads_processes.md
+    - Interpreter: python/interpreter.md
+    - Functional Programming: python/functional_programming.md
+    - Standard Library: python/standard_library.md
+    - Python Packages: python/python_packages.md
+    - Coding: python/coding.md
+  - Python Framework:
+    - python_framework.md
+    - Django: python_framework/django.md
+    - DRF: python_framework/drf.md
+    - Fast API: python_framework/fast_api.md
+  - Computer Science:
+    - computer_science.md
+    - OOP: computer_science/oop.md
+    - Programming Principles: computer_science/programming_principles.md
+    - SOLID: computer_science/solid.md
+    - Data Structures: computer_science/data_structures.md
+    - Algorithms: computer_science/algorithmes.md
+    - Computer Science: computer_science/computer_science.md
+    - Testing: computer_science/testing.md
+  - Web Development:
+    - web_development.md
+    - HTTP: web_development/http.md
+    - REST SOAP: web_development/rest_soap.md
+    - RPC: web_development/rpc.md
+  - Infrastructure:
+    - infrastructure.md
+    - SQL: infrastructure/sql.md
+    - Database: infrastructure/database.md
+    - MQ: infrastructure/mq.md
+    - Docker: infrastructure/docker.md
+    - Kubernates: infrastructure/kubernates.md
+    - Server: infrastructure/server.md
+    - AWS: infrastructure/aws.md
+  - Architecture:
+    - architecture.md
+    - Architecture Patterns: architecture/architecture_patterns.md
+    - DDD: architecture/ddd.md
+    - System Design: architecture/system_design.md
+  - Development:
+    - development.md
+    - Git: development/git.md
+    - CI/CD: development/ci_cd.md
+    - SDLC: development/sdlc.md
+  - Front-end:
+    - frontend.md
+    - Front End: frontend/front_end.md
+    - JavaScript: frontend/javascript.md
+    - DOM: frontend/dom.md
+    - Framework: frontend/framework.md
+    - HTML: frontend/html.md
+    - CSS: frontend/css.md
+
+
+plugins:
+  - search
+  - autolinks
+  - git-revision-date-localized:
+      type: timeago
+  - minify:
+      minify_html: true
+  - section-index
+
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - meta
+  - def_list
+  - toc:
+      permalink: ⚑
+      baselevel: 2
+  - pymdownx.arithmatex
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      options:
+        custom_icons:
+          - theme/.icons
+  - pymdownx.magiclink
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.highlight:
+      auto_title: false
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+
+theme:
+  name: material
+  custom_dir: theme
+  logo: img/logo.bmp
+  features:
+    - navigation.footer
+    - navigation.instant
+    - navigation.top
+    - content.code.annotate
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+  palette:
+    # Light mode
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/toggle-switch-off-outline
+        name: Switch to dark mode
+
+    # Dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: indigo
+      accent: light blue
+      toggle:
+        icon: material/toggle-switch
+        name: Switch to light mode
+
+
+extra_css: [stylesheets/extra.css, stylesheets/links.css]
+
+
+extra:
+  social:
+    - icon: fontawesome/brands/github-alt
+      link: https://github.com/tavor118
+
+
+repo_name: tavor118/pj_python_interview_questions_and_answers # for example: 'lyz-code/pydo'
+repo_url: https://github.com/tavor118/pj_python_interview_questions_and_answers # for example: 'https://github.com/lyz-code/pydo'
