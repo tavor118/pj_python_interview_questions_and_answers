@@ -396,3 +396,147 @@ print("The most common triplet of words:", most_common_triplet)  # ('abba', 'com
 print("Frequency of occurrence:", triplet_counts[most_common_triplet])  # 3
 ```
 
+
+### Чи можна використати клас як ключ в словнику
+
+Що виведе print та чому?
+
+```python
+class KeyHolder:
+    def __init__(self, key):
+        self.key = key
+
+    def __eq__(self, other):
+        return self.key == other.key
+
+    def __hash__(self):
+        return 0
+
+d = {KeyHolder(1): 'a', KeyHolder(2): 'b'}
+
+print(d)  # {<__main__.KeyHolder object at 0x10>: 'a', <__main__.KeyHolder object at 0x20>: 'b'}
+```
+
+Функція `hash` буде повертати однакове значення в усіх випадках. Але виклик `KeyHolder(2)` не перезапише ключ, оскільки словник вміє працювати з колізіями. Коли ми отримуємо однакове значення хеша, далі проводиться порівняння за значенням. Оскільки в `eq` ми порівнюємо `key`, Python зрозуміє що це інший об'єкт, та помістить нову пару в хеш-таблицю. Проблемою цієї реалізації є те, що всі виклики `hash` будуть повертати однакове значення. Відповідно для того, щоб знайти по ключу відповідно значення, в негативному сценарії потрібно буде перебрати усі ключі. Тобто доступ буде O(n), а не O(1).
+
+
+### Дескриптор для валідації атрибутів
+
+```python
+from typing import Callable, Any
+
+class Validation:
+    def __init__(self, validation_function: Callable[[Any], bool], error_msg: str) -> None:
+        self.validation_function = validation_function
+        self.error_msg = error_msg
+
+    def __call__(self, value):
+        if not self.validation_function(value):
+            raise ValueError(f"{value!r} {self.error_msg}")
+
+
+class Field:
+    def __init__(self, *validations):
+        self._name = None
+        self.validations = validations
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return instance.__dict__[self._name]
+
+    def validate(self, value):
+        for validation in self.validations:
+            validation(value)
+
+    def __set__(self, instance, value):
+        self.validate(value)
+        instance.__dict__[self._name] = value
+
+
+class ClientClass:
+    descriptor = Field(
+        Validation(lambda x: isinstance(x, (int, float)), "is not a number"),
+        Validation(lambda x: x >= 0, "is not >= 0"),
+    )
+
+>>> client = ClientClass()
+>>> client.descriptor = 42
+>>> client.descriptor
+42
+>>> client.descriptor = -42
+Traceback (most recent call last):
+...
+ValueError: -42 is not >= 0
+>>> client.descriptor = "invalid value"
+Traceback (most recent call last):
+...
+ValueError: 'invalid value' is not a number
+
+```
+
+
+### Дескриптор з метою запобігання видаленню атрибутів
+
+Дескриптор з метою запобігання видаленню атрибутів з об’єкта без необхідних адміністративних привілеїв. 
+
+```python
+class ProtectedAttribute:
+    def __init__(self, requires_role=None) -> None:
+        self.permission_required = requires_role
+        self._name = None
+
+    def __set_name__(self, owner, name):
+        self._name = name
+
+    def __set__(self, user, value):
+        if value is None:
+            raise ValueError(f"{self._name} can't be set to None")
+        user.__dict__[self._name] = value
+
+    def __delete__(self, user):
+        if self.permission_required in user.permissions:
+            user.__dict__[self._name] = None
+        else:
+            raise ValueError(
+                f"User {user!s} doesn't have {self.permission_required} permission"
+            )
+
+
+class User:
+    """Only users with 'admin' privileges can remove their email address."""
+    email = ProtectedAttribute(requires_role="admin")
+
+    def __init__(self, username: str, email: str, permission_list: list = None) -> None:
+        self.username = username
+        self.email = email
+        self.permissions = permission_list or []
+
+    def __str__(self):
+        return self.username
+
+>>> admin = User("root", "root@d.com", ["admin"])
+>>> user = User("user", "user1@d.com", ["email", "helpdesk"])
+>>> admin.email
+'root@d.com'
+>>> del admin.email
+>>> admin.email is None
+True
+>>> user.email
+'user1@d.com'
+>>> user.email = None
+Traceback (most recent call last):
+...
+ValueError: email can't be set to None
+>>> del user.email
+Traceback (most recent call last):
+...
+ValueError: User user doesn't have admin permission
+```
+
+Клас `User` вимагає, щоб ім'я користувача та електронна пошта були обов'язковими параметрами. Згідно з його методом `__init__`, об'єкт не може бути користувачем, якщо у нього немає атрибута `email`. Якщо видалити цей атрибут і повністю вилучити його з об'єкта, буде некоректний об'єкт, який не відповідає інтерфейсу, визначеному класом `User`. Інший об'єкт, який буде взаємодіяти з цим користувачем, буде очікувати, що у нього буде атрибут `email`.
+
+Тому "видалення" електронної пошти просто встановлює її значення на `None`. З тієї ж причини потрібно заборонити присвоєння значення `None` для цього атрибута, оскільки це обійде механізм, який встановлений в методі `__delete__`.

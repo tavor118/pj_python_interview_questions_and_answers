@@ -68,6 +68,43 @@ Namespace, або простір імен, створюється у стеку.
 Тобто коли імпортується модуль, інтерпретатор Python зберігає змінні та об'єкти модуля в купі, а простір імен модуля використовується для доступу до цих змінних та об'єктів у програмі - купа зберігає дані, а стек - виклики функцій і контексти.
 
 
+### Контейнери (Container objects)
+
+**Контейнер** в Python — це структура даних, яка містить інші об'єкти. Найпоширенішими контейнерами є - списки, кортежі, словники, множини.
+
+Об’єкт є контейнером, якщо клас має спеціальний метод `__contains__()`, який визначає, що означає «містить» об’єкт. Цей метод викликається за наявності ключового слова in Python.
+
+```python
+element in container  # container.__contains__(element)
+
+a = [1, 2, 3]  
+2 in a # True  
+5 in a # False
+```
+
+Приклад свого контейнера
+
+```python
+class Boundaries:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+
+    def __contains__(self, coord):
+        x, y = coord
+        return 0 <= x < self.width and 0 <= y < self.height
+
+class Grid:
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.limits = Boundaries(width, height)
+
+    def __contains__(self, coord):
+        return coord in self.limits
+```
+
+
 ### Який паттерн реалізовують `None`, `False`, `True` в Python?
 
 В Python `None`, `False`, та `True` є об'єктами, які представляють відповідно відсутність значення, логічне значення "неправда" та логічне значення "істина". 
