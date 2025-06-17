@@ -51,12 +51,25 @@ nav:
   - Infrastructure:
     - infrastructure.md
     - SQL: infrastructure/sql.md
-    - Database: infrastructure/database.md
     - MQ: infrastructure/mq.md
     - Docker: infrastructure/docker.md
     - Kubernates: infrastructure/kubernates.md
     - Server: infrastructure/server.md
     - AWS: infrastructure/aws.md
+  - Database: 
+    - databases/database.md
+    - Database Concepts:
+      - Introduction: databases/concepts/intro.md
+      - Modeling: databases/concepts/modeling.md
+      - Indexing: databases/concepts/indexing.md
+      - Consistency: databases/concepts/consistency.md
+      - Performance: databases/concepts/performance.md
+      - Runtime: databases/concepts/runtime.md
+    - Database Systems:
+      - MySQL: databases/mysql/README.md
+      - PostgreSQL: databases/postgresql/README.md
+    - Database Comparisons:
+      - PostgreSQL vs MySQL: databases/comparisons/postgresql_vs_mysql.md  
   - Architecture:
     - architecture.md
     - Architecture Patterns: architecture/architecture_patterns.md
