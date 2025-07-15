@@ -249,6 +249,167 @@ user_data: Dict[str, int] = {"age": 30, "score": 100}  # Dictionary with string 
 ```
 
 
+### ParamSpec
+
+`ParamSpec` — це спеціальний тип із модуля `typing`, який з'явився у Python 3.10 (у `typing_extensions` доступний раніше). Він дозволяє описувати параметри функцій як окремий тип, що дуже корисно для створення узагальнених декораторів і вищих функцій.
+
+`ParamSpec` дає можливість зберегти сигнатуру аргументів функції (позиційних та ключових) і передати її далі, наприклад, у декоратор. На відміну від `*args: Any` і `**kwargs: Any`, `ParamSpec` зберігає реальну типізацію аргументів, що важливо для автодоповнення, валідації типів і перевірки через `mypy` чи `pyright`.
+
+`ParamSpec` зазвичай використовується разом із `Callable[P, R]`, `P.args` і `P.kwargs` для збереження типів параметрів та результатів функцій.
+
+```python
+from typing import Callable, TypeVar, ParamSpec
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+def decorator(func: Callable[P, R]) -> Callable[P, R]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print("Before function call")
+        return func(*args, **kwargs)
+    return wrapper
+```
+
+У прикладі вище `P` описує параметри функції, яку обгортає декоратор. Це дозволяє декоратору повністю зберегти сигнатуру обгорнутої функції. Без `ParamSpec` при типізації доводиться вказувати загальні `*args: Any` і `**kwargs: Any`, що втрачає типову інформацію.
+
+```python
+@decorator
+def greet(name: str, age: int) -> str:
+    return f"Hello {name}, you are {age}"
+
+greet("Alice", 30)  # Type checker knows arguments are (str, int)
+```
+
+
+### Generic, TypeVar
+
+**Generic** — це механізм у модулі `typing`, який дозволяє створювати узагальнені класи та функції, що працюють з різними типами даних, зберігаючи при цьому типову безпеку. Це базовий клас для створення параметризованих типів.
+
+**TypeVar** використовується для визначення змінної типу, яку потім можна використовувати в узагальнених класах або функціях. Це дозволяє встановити зв'язок між типами вхідних і вихідних параметрів у функціях та класах так, щоб типізатор розумів їхній зв'язок. Наприклад, можна створити функцію, яка приймає і повертає значення одного й того самого типу, але не знає наперед, який саме це буде тип.
+
+```python
+from typing import TypeVar, Generic
+
+T = TypeVar('T')  # Declare type variable
+
+def echo(value: T) -> T:
+    return value  # Return the value as-is, preserving its type
+```
+
+Основна відмінність між `Generic` та `TypeVar`: `TypeVar` оголошує змінну типу, а `Generic` використовується як базовий клас для створення узагальнених класів:
+
+```python
+from typing import TypeVar, Generic, List
+
+T = TypeVar('T')  
+
+class Stack(Generic[T]):
+    def __init__(self):
+        self._items: List[T] = []
+    
+    def push(self, item: T) -> None:
+        self._items.append(item)
+    
+    def pop(self) -> T:
+        return self._items.pop()
+    
+    def peek(self) -> T:
+        return self._items[-1]
+```
+
+Приклад використання узагальненої функції з `TypeVar`:
+
+```python
+def get_first_item(items: List[T]) -> T:
+    # Return first item from list, preserving type
+    if not items:
+        raise ValueError("Empty list")
+    return items[0]
+
+# Usage examples
+numbers = [1, 2, 3]
+first_number = get_first_item(numbers)  # Type: int
+
+words = ["hello", "world"]
+first_word = get_first_item(words)  # Type: str
+```
+
+Можна обмежити допустимі типи для `TypeVar` через параметр `bound` (обмеження успадкуванням) або `constraints` (обмеження конкретними типами):
+
+```python
+from typing import Protocol
+
+class Comparable(Protocol):
+    def __lt__(self, other) -> bool: ...
+
+# Only types that implement comparison
+U = TypeVar('U', bound=Comparable)
+
+def find_max(items: List[U]) -> U:
+    # Find maximum item that supports comparison
+    return max(items)
+
+# Constraint to specific types only
+V = TypeVar('V', int, float, str)
+
+def process_value(value: V) -> V:
+    # Process only int, float, or str types
+    return value
+```
+
+Можна створювати множинні типові параметри для складніших випадків:
+
+```python
+K = TypeVar('K')  # Key type
+V = TypeVar('V')  # Value type
+
+class Cache(Generic[K, V]):
+    def __init__(self):
+        self._data: dict[K, V] = {}
+    
+    def get(self, key: K) -> V | None:
+        return self._data.get(key)
+    
+    def set(self, key: K, value: V) -> None:
+        self._data[key] = value
+
+# Usage
+string_cache = Cache[str, int]()
+string_cache.set("count", 42)
+```
+
+Коваріантність і контраваріантність можна контролювати через параметри `covariant` та `contravariant`:
+
+```python
+# Covariant - can return more specific types
+T_co = TypeVar('T_co', covariant=True)
+
+class Producer(Generic[T_co]):
+    def produce(self) -> T_co:
+        pass
+
+# Contravariant - can accept more general types
+T_contra = TypeVar('T_contra', contravariant=True)
+
+class Consumer(Generic[T_contra]):
+    def consume(self, item: T_contra) -> None:
+        pass
+```
+
+Сучасний Python (3.12+) підтримує більш лаконічний синтаксис через `type` statement:
+
+```python
+# Modern syntax (Python 3.12+)
+type Stack[T] = list[T]
+
+class ModernStack[T]:
+    def __init__(self):
+        self._items: list[T] = []
+    
+    def push(self, item: T) -> None:
+        self._items.append(item)
+```
+
 
 ### Для чого використовуються файли з розширенням `pyi` ?
 
