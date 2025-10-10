@@ -190,10 +190,11 @@ print(f"The Fibonacci number at position {n} is {result}.")
 ### Декоратор для заміру часу виконання функції
 
 ```python
+import functools
 import time
 
 def measure_execution_time(function):
-	@functools.wraps(func)
+    @functools.wraps(function)
     def wrapper(*args, **kwargs):
         start = time.time()
         result = function(*args, **kwargs)
