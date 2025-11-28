@@ -306,6 +306,79 @@ a, b, c = (1, 2, 3)
 `range`  також підтримує доступ по індексу, `len()`, але не являється ітератором - він не викидає `StopIteration`, та по ньому можна ітеруватись багато разів.
 
 
+### Реалізувати свій `range`
+
+```python
+r = RangeLike(3, 7) 
+print(list(r)) # [3, 4, 5, 6] 
+print(list(r)) # [3, 4, 5, 6]
+```
+
+**Неправильна реалізація**
+
+```python
+class RangeLike:
+    def __init__(self, start, stop):
+        self.start = start
+        self.stop = stop
+        self.current = start
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current < self.stop:
+            value = self.current
+            self.current += 1
+            return value
+        raise StopIteration
+
+```
+
+У такій реалізації сам об'єкт `RangeLike` є ітератором: `iter` повертає `self`. 
+А ітератори в Python одноразові: після досягнення `StopIteration` їх не можна 
+"перезапустити". Вони зберігають свій стан (current) та продовжують бути вичерпаними.
+
+**Правильна реалізація**
+
+`range` - об'єкт, що ітерується, який при кожному виклику `iter(range_obj)` створює 
+новий ітератор з нульовим станом. Тому `range` можна проходити скільки завгодно разів.
+
+Поділ на контейнер (`RangeLike`) та ітератор (`RangeIterator`) повторює вбудований 
+`range`: він ітерується, але сам не ітератор.
+
+```python
+class RangeLike:
+    def __init__(self, start, stop):
+        self.start = start
+        self.stop = stop
+
+    def __iter__(self):
+        return RangeLikeIterator(self.start, self.stop)
+
+
+class RangeLikeIterator:
+    def __init__(self, start, stop):
+        self.current = start
+        self.stop = stop
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current >= self.stop:
+            raise StopIteration
+        value = self.current
+        self.current += 1
+        return value
+
+r = RangeLike(3, 7)
+
+print(list(r))   # [3, 4, 5, 6]
+print(list(r))   # [3, 4, 5, 6]
+```
+
+
 ### Як порівнюються послідовності
 
 Дві послідовності рівні, якщо вони мають однаковий тип, однакову довжину і відповідні елементи обох послідовностей рівні.
