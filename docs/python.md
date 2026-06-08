@@ -12,7 +12,7 @@
 - [Class and Object](python/class_and_object.md)
 - [Metaclass](python/metaclass.md)
 - [Namespace and Context Manager](python/namespace_and_context_manager.md)
-- [Modules and Packets](python/modules_and_packets.md)
+- [Modules and Packages](python/modules_and_packages.md)
 - [Exceptions](python/exceptions.md)
 - [Files and IO](python/files_and_io.md)
 - [Async](python/async.md)

@@ -4,6 +4,6 @@
 - [Database](infrastructure/database.md)
 - [MQ](infrastructure/mq.md)
 - [Docker](infrastructure/docker.md)
-- [Kubernates](infrastructure/kubernates.md)
+- [Kubernetes](infrastructure/kubernetes.md)
 - [Server](infrastructure/server.md)
 - [AWS](infrastructure/aws.md)

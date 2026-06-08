@@ -40,6 +40,7 @@ You are given a list of integers. Your task is to do the following:
 ```
 
 
+
 ### Вивести найбільші 2 числа для словника
 
 Вивести значення ключів для двох найбільших значень в словнику.
@@ -57,24 +58,25 @@ def find_max_values(dictionary: dict) -> Tuple[int, int]:
         raise ValueError("At least 2 values are required")  
     if len(dictionary) == 2:  
         return tuple(dictionary.keys())  
-	max_key = None
-	second_max_key = None
+    max_key = None
+    second_max_key = None
     max_value_1 = float('-inf')
     max_value_2 = float('-inf')
     for key, value in dictionary.items():  
         if value > max_value_1:
-	        second_max_key = max_key
+            second_max_key = max_key
             max_value_2 = max_value_1
             max_key = key
             max_value_1 = value  
         elif value > max_value_2:
-	        second_max_key = key
+            second_max_key = key
             max_value_2 = value  
     return max_key, second_max_key  
 
 if __name__ == "__main__":  
     print(find_max_values(given_dict))
 ```
+
 
 
 ### Функція перевірки простого числа
@@ -98,6 +100,7 @@ def is_prime(number):
 ```
 
 
+
 ### Функція перевірки, чи рядок є паліндромом
 
 ```python
@@ -105,6 +108,7 @@ def is_palindrome(string):
     string = string.lower()   
     return string == string[::-1]
 ```
+
 
 
 ### Генератор для чисел Фібоначчі
@@ -123,6 +127,7 @@ for _ in range(10):
 ```
 
 
+
 ### Рекурсивна функція для чисел Фібоначчі
 
 ```python
@@ -136,6 +141,7 @@ n = 10  # Set your desired Fibonacci number here
 result = fibonacci(n)
 print(f"The Fibonacci number at position {n} is {result}.")
 ```
+
 
 
 ### Рекурсивна функція для чисел Фібоначчі з кешем
@@ -165,14 +171,14 @@ print(f"The Fibonacci number at position {n} is {result}.")
 
 ```python
 def memoize(f):
-	cache = {}
-	def decorated_function(*args):
-		if args in cache:
-			return cache[args]
-		else:  
-			cache[args] = f(*args)  
-			return cache[args]
-	return decorated_function
+    cache = {}
+    def decorated_function(*args):
+        if args in cache:
+            return cache[args]
+        else:  
+            cache[args] = f(*args)  
+            return cache[args]
+    return decorated_function
 
 @memoize
 def fibonacci(n):
@@ -185,6 +191,7 @@ n = 10  # Set your desired Fibonacci number here
 result = fibonacci(n)
 print(f"The Fibonacci number at position {n} is {result}.")
 ```
+
 
 
 ### Декоратор для заміру часу виконання функції
@@ -208,6 +215,7 @@ def measure_execution_time(function):
 def sample_function():
     pass
 ```
+
 
 
 ### Декоратора, який буде перехоплювати помилки, і повторіть функцію максимум N раз
@@ -242,6 +250,7 @@ except Exception as e:
 ```
 
 
+
 ### Функція, яка знаходить найбільше число у вкладеному списку
 
 ```python
@@ -261,6 +270,7 @@ print(f"The maximum in the nested list is: {result}")
 ```
 
 
+
 ### Функція, яка знаходить суму усіх чисел у вкладеному списку
 
 ```python
@@ -277,6 +287,7 @@ nested_list = [1, [2, 3], [4, [5, 6], 7], 8, 9]
 sum_result = find_sum(nested_list)
 print(f"The sum of all numbers in the nested list is: {sum_result}")
 ```
+
 
 
 ### Аналог deepcopy для tree
@@ -326,6 +337,7 @@ print_tree(copied_tree)  # Checking the copied tree
 ```
 
 
+
 ### Спискові і словникові вирази
 
 ```python
@@ -349,6 +361,7 @@ A6 = [[0, 0], [1, 1], [2, 4], [3, 9], [4, 16], [5, 25], [6, 36], [7, 49], [8, 64
 A7 = [3, 0, 5, 0, 7]
 A8 = '0,1,4,9,16,25,36,49,64,81'
 ```
+
 
 
 ### Розташувати функції в порядку зростання часу виконання
@@ -376,7 +389,13 @@ def f3(lst):
 
 ### Знайти трійку найуживаніших слів у тексті
 
-У файлі містяться слова, розділені пробілом. Наприклад: "abba com mother bill mother com abba dog abba mother com". Потрібно знайти і вивести трійку слів, які частіше всього зустрічаються разом (порядок не має значення). Тобто у моєму прикладі трійки слів це "abba com mother", "com mother bill", "mother bill mother" і так далі. Тут правильною відповіддю має бути "abba com mother" (частота — 3 рази).
+У файлі містяться слова, розділені пробілом. 
+Наприклад: "abba com mother bill mother com abba dog abba mother com". 
+Потрібно знайти і вивести трійку слів, які частіше всього зустрічаються разом 
+(порядок не має значення). 
+Тобто у моєму прикладі трійки слів це "abba com mother", "com mother bill", 
+"mother bill mother" і так далі. 
+Тут правильною відповіддю має бути "abba com mother" (частота — 3 рази).
 
 ```python
 from collections import defaultdict  
@@ -396,6 +415,7 @@ most_common_triplet = max(triplet_counts, key=triplet_counts.get)
 print("The most common triplet of words:", most_common_triplet)  # ('abba', 'com', 'mother')  
 print("Frequency of occurrence:", triplet_counts[most_common_triplet])  # 3
 ```
+
 
 
 ### Чи можна використати клас як ключ в словнику
@@ -418,7 +438,15 @@ d = {KeyHolder(1): 'a', KeyHolder(2): 'b'}
 print(d)  # {<__main__.KeyHolder object at 0x10>: 'a', <__main__.KeyHolder object at 0x20>: 'b'}
 ```
 
-Функція `hash` буде повертати однакове значення в усіх випадках. Але виклик `KeyHolder(2)` не перезапише ключ, оскільки словник вміє працювати з колізіями. Коли ми отримуємо однакове значення хеша, далі проводиться порівняння за значенням. Оскільки в `eq` ми порівнюємо `key`, Python зрозуміє що це інший об'єкт, та помістить нову пару в хеш-таблицю. Проблемою цієї реалізації є те, що всі виклики `hash` будуть повертати однакове значення. Відповідно для того, щоб знайти по ключу відповідно значення, в негативному сценарії потрібно буде перебрати усі ключі. Тобто доступ буде O(n), а не O(1).
+Функція `hash` буде повертати однакове значення в усіх випадках. 
+Але виклик `KeyHolder(2)` не перезапише ключ, оскільки словник вміє працювати з колізіями.
+Коли ми отримуємо однакове значення хеша, далі проводиться порівняння за значенням. 
+Оскільки в `eq` ми порівнюємо `key`, Python зрозуміє що це інший об'єкт, 
+та помістить нову пару в хеш-таблицю. Проблемою цієї реалізації є те, 
+що всі виклики `hash` будуть повертати однакове значення. 
+Відповідно для того, щоб знайти по ключу відповідно значення, в негативному сценарії 
+потрібно буде перебрати усі ключі. Тобто доступ буде O(n), а не O(1).
+
 
 
 ### Дескриптор для валідації атрибутів
@@ -476,13 +504,14 @@ ValueError: -42 is not >= 0
 Traceback (most recent call last):
 ...
 ValueError: 'invalid value' is not a number
-
 ```
+
 
 
 ### Дескриптор з метою запобігання видаленню атрибутів
 
-Дескриптор з метою запобігання видаленню атрибутів з об’єкта без необхідних адміністративних привілеїв. 
+Дескриптор з метою запобігання видаленню атрибутів з об’єкта без необхідних 
+адміністративних привілеїв. 
 
 ```python
 class ProtectedAttribute:
@@ -538,6 +567,14 @@ Traceback (most recent call last):
 ValueError: User user doesn't have admin permission
 ```
 
-Клас `User` вимагає, щоб ім'я користувача та електронна пошта були обов'язковими параметрами. Згідно з його методом `__init__`, об'єкт не може бути користувачем, якщо у нього немає атрибута `email`. Якщо видалити цей атрибут і повністю вилучити його з об'єкта, буде некоректний об'єкт, який не відповідає інтерфейсу, визначеному класом `User`. Інший об'єкт, який буде взаємодіяти з цим користувачем, буде очікувати, що у нього буде атрибут `email`.
+Клас `User` вимагає, щоб ім'я користувача та електронна пошта були обов'язковими 
+параметрами. 
+Згідно з його методом `__init__`, об'єкт не може бути користувачем, якщо у нього немає 
+атрибута `email`. 
+Якщо видалити цей атрибут і повністю вилучити його з об'єкта, буде некоректний об'єкт, 
+який не відповідає інтерфейсу, визначеному класом `User`. 
+Інший об'єкт, який буде взаємодіяти з цим користувачем, буде очікувати, що у нього буде атрибут `email`.
 
-Тому "видалення" електронної пошти просто встановлює її значення на `None`. З тієї ж причини потрібно заборонити присвоєння значення `None` для цього атрибута, оскільки це обійде механізм, який встановлений в методі `__delete__`.
+Тому "видалення" електронної пошти просто встановлює її значення на `None`. 
+З тієї ж причини потрібно заборонити присвоєння значення `None` для цього атрибута, 
+оскільки це обійде механізм, який встановлений в методі `__delete__`.
