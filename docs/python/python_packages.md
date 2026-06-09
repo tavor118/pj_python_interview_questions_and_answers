@@ -246,6 +246,42 @@ for user in session.query(User).all():  # Query using ORM
 
 
 
+### Що таке прогрів пула (pool warm-up) у SQLAlchemy?
+
+*Summary*
+> **Прогрів пула** - це попереднє створення зʼєднань з БД до того, як вони реально знадобляться.
+> Це усуває "холодний старт" перших запитів і дозволяє завчасно зловити проблеми з підключенням.
+
+За замовчуванням SQLAlchemy використовує **ліниву ініціалізацію** - зʼєднання з БД 
+створюються лише за потребою. Перший реальний запит може бути помітно повільнішим: 
+TCP-handshake, TLS, аутентифікація, віддалений сервер тощо.
+
+**Прогрів дає:**
+
+- меншу затримку на перших запитах після старту;
+- ранню діагностику - якщо БД недоступна або credentials невірні, помилка вилазить ще під час warm-up, а не на першому користувацькому трафіку;
+- передбачувану кількість зʼєднань до моменту, коли почне приходити трафік (важливо при autoscaling).
+
+```python
+from sqlalchemy import create_engine
+
+engine = create_engine(
+    "postgresql+asyncpg://user:pass@host/db",
+    pool_size=10,
+    max_overflow=5,
+)
+
+# Warm up the pool - open and immediately return all baseline connections
+for _ in range(engine.pool.size()):
+    conn = engine.connect()
+    conn.close()
+```
+
+Зазвичай прогрів робиться у startup-хуку застосунку (наприклад, `@app.on_event("startup")` 
+для FastAPI). Особливо актуально для high-load сервісів і коротких health-check вікон.
+
+
+
 ### Celery
 
 **Celery** — це зручний інструмент для асинхронного виконання завдань у Python. 
@@ -396,4 +432,122 @@ def fragile_task(self):
 		pass
 	except Exception as e:
 		self.retry(countdown=5, exc=e)
+```
+
+
+
+### Що використовувати для логування помилок у Celery?
+
+*Summary*
+> Стандартний модуль `logging` через `celery.utils.log.get_task_logger(__name__)` 
+> для базового логування, плюс інтеграція з зовнішнім сервісом (Sentry, ELK, Loki, Datadog) 
+> для агрегації, трасування і алертингу.
+
+**1. Стандартний логер Python + Celery**
+
+Celery використовує модуль `logging` зі стандартної бібліотеки. Бажано брати логер 
+через спеціальний хелпер - він додає префікс імені таски, що полегшує фільтрацію в логах.
+
+```python
+from celery.utils.log import get_task_logger
+
+logger = get_task_logger(__name__)
+
+@app.task
+def process_order(order_id):
+    logger.info("Processing order %s", order_id)
+    try:
+        ...
+    except Exception:
+        logger.exception("Failed to process order %s", order_id)
+        raise
+```
+
+**2. Інтеграція з зовнішніми сервісами**
+
+- **Sentry** - найпопулярніший варіант. Через `sentry-sdk` з інтеграцією `CeleryIntegration` автоматично збираються винятки, traceback, теги, аргументи таски.
+- **ELK Stack** (Elasticsearch + Logstash + Kibana) - структуроване логування у JSON через `python-json-logger` або відправка в Logstash через UDP/HTTP.
+- **Loki + Grafana**, **Graylog**, **Datadog** - альтернативи з готовими дашбордами.
+
+Базова інтеграція з Sentry:
+
+```python
+import sentry_sdk
+from sentry_sdk.integrations.celery import CeleryIntegration
+
+sentry_sdk.init(
+    dsn="https://...",
+    integrations=[CeleryIntegration()],
+    traces_sample_rate=0.1,
+)
+```
+
+
+
+### Як Celery вміє працювати з пріоритетними повідомленнями?
+
+*Summary*
+> Через параметр `priority` у `apply_async()` + черга, створена з `x-max-priority`.
+> Працює тільки з RabbitMQ-брокером, лише в межах однієї черги, і має ряд обмежень.
+
+```python
+my_task.apply_async(args=[...], priority=9)
+```
+
+**Що потрібно, щоб це запрацювало:**
+
+1. Створити чергу з аргументом `x-max-priority`:
+
+```python
+from kombu import Queue
+
+app.conf.task_queues = [
+    Queue("default", queue_arguments={"x-max-priority": 10}),
+]
+```
+
+2. Запустити воркер: `celery -A proj worker -Q default`.
+
+**Як це працює під капотом:**
+
+- Celery ставить `priority` в `AMQP message property`.
+- RabbitMQ сортує повідомлення в черзі за пріоритетом.
+- Воркер бере повідомлення в порядку пріоритету в межах однієї черги.
+
+**Обмеження:**
+
+- Пріоритет працює тільки в межах **однієї черги** - глобального пріоритету між `high`/`low` чергами немає.
+- AMQP priority range - `0..255`, але рекомендують 0–9 (більше = повільніше через переоцінку порядку).
+- **Redis-брокер не підтримує пріоритети** - лише RabbitMQ (і частково Amazon SQS).
+- `prefetch_count` впливає: якщо воркер заздалегідь "захопив" 10 низькопріоритетних задач - високопріоритетна чекатиме на наступний раунд.
+
+
+
+### Як зрозуміти, що таска виконається?
+
+*Summary*
+> Жорсткої гарантії виконання немає - є гарантія доставки до брокера і механізми 
+> відстеження результату:
+> `result_backend`, `acks_late`, моніторинг (Flower, Sentry), retry на помилках.
+
+Чек-лист для "хочу бути впевнений, що таска точно відпрацює":
+
+- **`result_backend`** - увімкнути бекенд для збереження результату (Redis, Postgres, RPC). Без нього `AsyncResult.get()` не поверне нічого.
+- **`acks_late=True`** - підтвердження від воркера надсилається після завершення таски, а не на старті. Якщо воркер впав посередині - повідомлення повернеться в чергу.
+- **`task_reject_on_worker_lost=True`** - якщо воркер впав, повернути повідомлення в чергу замість підтвердження.
+- **`max_retries` + `retry_backoff=True`** - автоматичні повторні спроби з експоненційним нарощуванням затримки.
+- **Моніторинг:** Flower (real-time monitoring UI), Sentry (помилки), Prometheus + Grafana (метрики).
+- **Idempotency на стороні таски** - обовʼязково, бо `acks_late + retry` гарантують at-least-once доставку, а не exactly-once.
+
+```python
+@app.task(
+    bind=True,
+    acks_late=True,
+    autoretry_for=(Exception,),
+    max_retries=5,
+    retry_backoff=True,
+    retry_jitter=True,
+)
+def reliable_task(self, payload):
+    process(payload)
 ```

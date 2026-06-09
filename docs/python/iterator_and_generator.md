@@ -526,3 +526,28 @@ def search_nested(array, desired_value):
 
 Python 3.5 включає підтримку співпрограм на рівні мови. 
 Для цього використовуються ключові слова `async` і `await`.
+
+
+
+### Чи можна використати `await` в звичайному генераторі
+
+*Summary*
+> Ні. `await` - лише в `async def`. Для поєднання `await` і `yield` використовується асинхронний генератор (`async def` з `yield`).
+
+Звичайний генератор з `yield` не підтримує `await` - компіляція дасть `SyntaxError`. 
+`await` доступний лише всередині `async def`.
+
+Якщо потрібна асинхронна функція, яка ще й віддає значення поелементно - 
+використовується асинхронний генератор: `async def` з `yield` всередині. 
+Перебирати його можна лише через `async for`.
+
+```python
+async def gen():
+    for i in range(3):
+        await asyncio.sleep(1)
+        yield i
+
+async def main():
+    async for value in gen():
+        print(value)
+```
