@@ -453,6 +453,95 @@ DO UPDATE SET
 
 
 
+### `TRUNCATE` vs `DELETE`
+
+*Summary*
+> `DELETE` видаляє рядки по одному за умовою `WHERE`, пише per-row записи в WAL, тригери
+> ON DELETE спрацьовують, місце на диску звільняє лише `VACUUM`. `TRUNCATE` миттєво
+> скидає вміст таблиці на metadata-рівні, без per-row логування, одразу повертає місце
+> ОС. У Postgres `TRUNCATE` транзакційна (можна відкотити в межах транзакції) - у
+> MySQL/Oracle це DDL з implicit commit.
+
+**Принцип роботи `DELETE`**
+
+`DELETE FROM t WHERE …` обходить таблицю, для кожного рядка позначає його як
+"мертвий" (видимий для старих snapshot'ів через MVCC), записує per-row запис у WAL,
+запускає тригери `BEFORE`/`AFTER DELETE` і оновлює індекси. Фізично рядки лишаються
+у файлах таблиці, поки `VACUUM` не звільнить місце; до того часу таблиця і її індекси
+зберігають попередній розмір.
+
+```sql
+DELETE FROM orders WHERE status = 'cancelled' AND created_at < '2025-01-01';
+-- builds WAL records per row, fires ON DELETE triggers,
+-- space reclaimed only after VACUUM
+```
+
+**Принцип роботи `TRUNCATE`**
+
+`TRUNCATE TABLE t` працює як швидке скидання вмісту: за документацією, "видаляє всі
+рядки з набору таблиць ... оскільки не сканує таблиці, працює швидше [за `DELETE`].
+Крім того, одразу повертає дисковий простір, не вимагаючи `VACUUM`". Тригери `ON
+DELETE` не запускаються, окремі рядки не обходяться.
+
+```sql
+TRUNCATE TABLE staging_events;                       -- single table
+TRUNCATE TABLE orders, order_items CASCADE;          -- + tables referencing via FK
+TRUNCATE TABLE counters RESTART IDENTITY;            -- reset sequences (Postgres)
+```
+
+**Транзакційність у Postgres**
+
+Ключовий нюанс, на якому часто плутаються кандидати: у **Postgres** `TRUNCATE` -
+транзакційна команда. Її можна викликати всередині `BEGIN … ROLLBACK` і таблиця
+повернеться до попереднього стану:
+
+```sql
+BEGIN;
+TRUNCATE TABLE orders;
+-- still inside transaction
+ROLLBACK;  -- table is back to its original contents
+```
+
+У **MySQL** і **Oracle** `TRUNCATE` - DDL з implicit commit: транзакція автоматично
+завершується перед виконанням, відкатити неможливо.
+
+**Тригери**
+
+- `DELETE` запускає row-level тригери `BEFORE/AFTER DELETE` на кожен рядок.
+- `TRUNCATE` запускає statement-level тригер `BEFORE/AFTER TRUNCATE` (один раз на
+  команду). Row-level `ON DELETE` тригери **не** спрацьовують - типове джерело
+  тонких багів при міграції з `DELETE` на `TRUNCATE`.
+
+**Сценарії застосування**
+
+- **`TRUNCATE`:** очистка staging-таблиці перед ETL-завантаженням, скидання тестових
+  фікстур між прогонами, повне очищення журналу. Великий виграш у швидкості для
+  таблиць з мільйонами рядків (за документацією Postgres - саме тому, що не сканує
+  рядки).
+- **`DELETE`:** умовне видалення (за `WHERE`), коли потрібні row-level тригери,
+  коли репліка/CDC має отримати per-row події, коли є FK без `CASCADE` і видалення
+  має відбутися лише для частини рядків.
+
+**Обмеження**
+
+- `TRUNCATE` вимагає окремого `TRUNCATE` privilege на таблиці; `DELETE` - `DELETE`
+  privilege. **Row-level security (RLS) до `TRUNCATE` не застосовується** ("operations
+  that apply to the whole table, such as `TRUNCATE` and `REFERENCES`, are not subject
+  to row security" - з документації Postgres), тоді як `DELETE` повністю підпадає
+  під RLS-політики.
+- `TRUNCATE` бере на таблиці lock рівня `ACCESS EXCLUSIVE`, що блокує всі конкурентні
+  операції (включно з `SELECT`). `DELETE` бере `ROW EXCLUSIVE` на таблицю - не
+  блокує читачів (звичайні `SELECT` беруть `ACCESS SHARE`, який сумісний з
+  `ROW EXCLUSIVE`).
+
+*Links*
+
+- [Postgres docs: TRUNCATE](https://www.postgresql.org/docs/current/sql-truncate.html) - privileges, transactional behavior, `ON TRUNCATE` triggers, `RESTART IDENTITY`
+- [Postgres docs: Explicit Locking](https://www.postgresql.org/docs/current/explicit-locking.html) - lock modes (`ACCESS EXCLUSIVE`, `ROW EXCLUSIVE`)
+- [Postgres docs: Row Security Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html) - "`TRUNCATE` and `REFERENCES` are not subject to row security"
+
+
+
 ### Що робить SELECT FOR UPDATE?
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
