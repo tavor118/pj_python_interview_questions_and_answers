@@ -143,6 +143,35 @@ if rows_updated == 0:
     raise ConcurrencyError("Order was modified by another transaction")
 ```
 
+**Реалізація на Postgres**
+
+- **Дефолт `READ COMMITTED` не оптимістичний** - конфліктні `UPDATE` чекають на блокування й перечитують оновлений рядок. Оптимістична поведінка з `serialization_failure` (SQLSTATE `40001`) з'являється лише на `REPEATABLE READ` (помилка на самому `UPDATE`/`DELETE`) або `SERIALIZABLE` (SSI - може спрацювати на читанні, записі або коміті). У SQLAlchemy це `OperationalError` з `orig.pgcode == "40001"`. Перехоплення лише `OperationalError` без перевірки `pgcode` охоплює також deadlock (`40P01`) і збої з'єднання, тому фільтрація за кодом обов'язкова.
+- **Песимістичне** в Postgres - `SELECT ... FOR UPDATE` (X-lock) або `FOR SHARE` (S-lock); деталі синтаксису та інших варіантів (`FOR NO KEY UPDATE`, `NOWAIT`, `SKIP LOCKED`) - див. [`infrastructure/sql.md`](../infrastructure/sql.md).
+- **Retry для оптимістичного підходу робиться з exponential backoff + jitter** - очікування подвоюють при кожній спробі плюс додають випадкове відхилення, щоб конкуруючі клієнти не зверталися до БД синхронно.
+
+```python
+from sqlalchemy.exc import OperationalError
+import random, time
+
+# Without REPEATABLE READ / SERIALIZABLE this retry is a no-op:
+# READ COMMITTED (default) never raises 40001.
+session = Session(engine.execution_options(isolation_level="REPEATABLE READ"))
+
+def update_with_retry(session, order_id, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            order = session.get(Order, order_id)
+            order.status = "processing"
+            session.commit()
+            return
+        except OperationalError as e:
+            session.rollback()
+            # Retry only on serialization_failure; deadlock / disconnect propagate up.
+            if getattr(e.orig, "pgcode", None) != "40001" or attempt == max_retries - 1:
+                raise
+            time.sleep((2 ** attempt) * 0.1 + random.uniform(0, 0.1))
+```
+
 Links
 
 - [How Databases Guarantee Isolation – Pessimistic vs Optimistic Concurrency Control Explained - freecodecamp](https://www.freecodecamp.org/news/how-databases-guarantee-isolation/)
@@ -218,7 +247,7 @@ Saga добре підходить для асинхронних систем з
 
 Два типи Saga
 
-- Choreography (Хореографія) - сервіси спілкуються через події (Message Broker: Kafka/RabbitMQ). Сервіс А кидає подію "Created", В слухає її тощо. Складність: важко відстежити статус транзакції, можливі циклічні залежності.
+- Choreography (Хореографія) - сервіси спілкуються через події (Message Broker: Kafka/RabbitMQ). Сервіс А публікує подію "Created", В слухає її тощо. Складність: важко відстежити статус транзакції, можливі циклічні залежності.
 - Orchestration (Оркестрація) - є окремий сервіс (Orchestrator), який каже кожному сервісу, що робити.
 
 Недоліки Saga

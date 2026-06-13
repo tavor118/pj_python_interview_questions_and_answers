@@ -1120,3 +1120,107 @@ PgBouncer дозволяє зменшити навантаження на сер
 - **Session pooling**: кожне з'єднання клієнта відповідає одній сесії сервера.
 - **Transaction pooling**: з'єднання використовується лише для однієї транзакції.
 - **Statement pooling**: з'єднання використовується для виконання одного SQL-запиту.
+
+
+
+### Redis: однопотоковий engine та атомарність через Lua
+
+*Summary*
+> У Redis виконання команд однопотокове (і в актуальних 6/7/8 також): усі конкурентні 
+> команди серіалізуються - race conditions на рівні окремих команд неможливі by design.
+> Lua-скрипти виконуються як єдина неподільна операція.
+> Це робить Redis природним сховищем для розподіленого локу, ключа ідемпотентності 
+> та rate-limiter-а - концептуально див. [`architecture/architecture_patterns.md`](../architecture/architecture_patterns.md).
+
+**Однопотокове виконання команд**
+
+Engine Redis-а виконує команди в одному потоці (так було завжди й залишається в актуальних 
+версіях). У 6.0 додали багатопотоковий **мережевий I/O** (читання/запис у сокети) та 
+фонові BIO-потоки (fsync, lazy-free), але саме виконання команд послідовне. Це не баг, 
+а дизайн:
+
+- Усі конкурентні запити **серіалізуються** у чергу і виконуються по черзі.
+- Race conditions на рівні окремих команд **неможливі by design**.
+- Якщо service A зробив `SET key value NX` і отримав `OK`, то service B через
+  1 ms гарантовано отримає відмову - правда одна (у межах одного інстансу).
+
+Кластер (Sentinel, Redis Cluster) додає HA та шардинг, але engine на кожному
+шарді все одно лишається однопотоковим. Важливе застереження: реплікація між master 
+і replica **асинхронна**, тож при failover незареплікований запис локу може загубитися -
+саме тому для критичних локів існує Redlock (див. `architecture/architecture_patterns.md`).
+
+**Postgres vs Redis як точка правди**
+
+- **PostgreSQL** з транзакціями - найпростіше рішення для невисокого RPS;
+  нічого нового тягти не треба.
+- **Redis** - коли потік великий (Kafka, мільйони повідомлень): in-memory,
+  написаний на C, низькорівнево оптимізований.
+
+**Базові патерни на одну команду**
+
+```python
+import redis
+
+r = redis.Redis()
+
+# Distributed lock (naive version) - see arch_patterns Distributed Lock
+acquired = r.set("lock:order:42", "worker-1", nx=True, ex=30)  # -> True/None
+# ... critical section ...
+# Unsafe: if the TTL expired during work, the lock may now belong to another owner
+# and a bare DEL would steal it. The safe form checks ownership atomically in Lua:
+# if redis.call("GET", KEYS[1]) == ARGV[1] then redis.call("DEL", KEYS[1]) end
+r.delete("lock:order:42")
+
+# Idempotency key for a consumer
+if r.set(f"idemp:{message_id}", "1", nx=True, ex=86400):
+    process(message)  # only the first consumer enters
+# else: duplicate, skip
+```
+
+Проблема наївного підходу: між кількома командами (`GET` → рішення → `SET`)
+інший клієнт може втрутитись. Команди атомарні **окремо**, послідовність - ні.
+
+**Lua-скрипти: атомарність на рівні логіки**
+
+Redis виконує Lua-скрипт як одну неподільну операцію: поки скрипт працює,
+жодна інша команда не виконається. Stock Redis вбудовує **інтерпретатор Lua 5.1**
+(не LuaJIT), тож виграш дає не JIT, а відсутність мережевих round-trip-ів і виконання
+логіки безпосередньо в engine - туди, де лежать дані.
+
+Sliding-window rate-limiter на Lua - увесь алгоритм вкладається в 5-6 викликів до Redis:
+
+```lua
+-- KEYS[1] = "rl:user:123"; ARGV = {now_ms, window_ms, limit}
+local now, window, limit = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+redis.call("ZREMRANGEBYSCORE", KEYS[1], 0, now - window)  -- drop expired
+local count = redis.call("ZCARD", KEYS[1])
+if count >= limit then return 0 end
+redis.call("ZADD", KEYS[1], now, now)
+redis.call("PEXPIRE", KEYS[1], window)
+return 1
+```
+
+```python
+allow = r.eval(LUA_SCRIPT, 1, "rl:user:123", now_ms, 60_000, 100)  # -> 1 or 0
+```
+
+Усе це виконається атомарно всередині Redis - без race conditions і без
+зайвих раундтрипів з Python.
+
+**Підводний камінь: read-modify-write на клієнті**
+
+Якщо тримати state у Redis і редагувати його з кількох обробників звичайними
+командами (`GET` → модифікація на клієнті → `SET`) - гонка цілком реальна:
+один воркер видалив частину, другий перезаписав старою версією, ключ розпухає.
+Винесення мутації в Lua або використання атомарних команд (`INCR`, `HSET`,
+`SET ... NX`) - типове рішення.
+
+**Типові патерни на цій основі**
+
+- [Distributed Lock](../architecture/architecture_patterns.md) - взаємне виключення між процесами на різних машинах.
+- [Rate Limiter](../architecture/architecture_patterns.md) - cap на кількість дій за час.
+- [Inbox Pattern](../architecture/architecture_patterns.md) / ідемпотентність consumer-а - дедуплікація через `SET NX`.
+
+*Links*
+
+- [Redis docs - Scripting with Lua](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/)

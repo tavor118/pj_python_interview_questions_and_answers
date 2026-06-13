@@ -494,7 +494,7 @@ sentry_sdk.init(
 my_task.apply_async(args=[...], priority=9)
 ```
 
-**Що потрібно, щоб це запрацювало:**
+**Налаштування**
 
 1. Створити чергу з аргументом `x-max-priority`:
 
@@ -508,7 +508,7 @@ app.conf.task_queues = [
 
 2. Запустити воркер: `celery -A proj worker -Q default`.
 
-**Як це працює під капотом:**
+**Принцип роботи**
 
 - Celery ставить `priority` в `AMQP message property`.
 - RabbitMQ сортує повідомлення в черзі за пріоритетом.

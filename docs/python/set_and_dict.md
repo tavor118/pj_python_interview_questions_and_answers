@@ -312,7 +312,7 @@ class Point:
     def __eq__(self, other):
         return isinstance(other, Point) and self.x == other.x and self.y == other.y
 
-    # __hash__ автоматично стає None - клас більше не хешований
+    # __hash__ is implicitly set to None - class becomes unhashable
 ```
 
 Спроба `{Point(1, 2), Point(1, 2)}` дасть `TypeError: unhashable type: 'Point'`.
@@ -330,7 +330,7 @@ class Point:
     def __hash__(self):
         return hash((self.x, self.y))
 
-{Point(1, 2), Point(1, 2)}  # {<Point ...>} - одне значення
+{Point(1, 2), Point(1, 2)}  # {<Point ...>} - single element
 ```
 
 **Інваріант:** якщо `a == b`, то `hash(a) == hash(b)`. Інакше:
