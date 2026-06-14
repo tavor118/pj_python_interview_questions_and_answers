@@ -850,3 +850,235 @@ Seq Scan on employees (cost=0.00..12.50 rows=3 width=100)
 Використання `EXPLAIN` особливо корисне при роботі зі складними запитами
 або великими обсягами даних, оскільки дозволяє заздалегідь зрозуміти,
 як виконуватиметься запит, і які оптимізації можуть знадобитися.
+
+
+
+### PostgreSQL Row-Level Security
+
+*Summary*
+> Row-Level Security (RLS) - вбудований у Postgres механізм фільтрації рядків
+> на рівні ядра БД за політиками (`CREATE POLICY`). На відміну від
+> `WHERE`-фільтрації в application-коді, RLS застосовується завжди, незалежно
+> від запиту, і дає кінцеву гарантію ізоляції даних (наприклад, між тенантами
+> у multi-tenant SaaS).
+
+**Призначення**
+
+RLS вирішує дві задачі: ізоляцію даних між тенантами у shared-schema
+multi-tenant архітектурі (див. [`architecture/architecture_patterns.md`](../architecture/architecture_patterns.md)
+розділ "Multi-tenancy: моделі ізоляції даних") і застосовну ізоляцію за ролями
+(одна таблиця `documents`, користувач бачить лише свої документи).
+
+Доступна з Postgres 9.5 (2016). Працює для `SELECT`, `INSERT`, `UPDATE`,
+`DELETE`; не застосовується до `TRUNCATE` і `REFERENCES` (див.
+[`TRUNCATE` vs `DELETE`](#truncate-vs-delete)).
+
+**Принцип роботи**
+
+RLS складається з трьох елементів:
+
+1. **Увімкнення на таблиці** через `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.
+   Без цього прапорця policy не застосовується. Окрема директива `FORCE ROW
+   LEVEL SECURITY` поширює policy і на власника таблиці (без неї власник їх
+   обходить).
+2. **Політики** - правила фільтрації `CREATE POLICY ... USING (...)
+   WITH CHECK (...)`. `USING` обмежує, які рядки видимі для `SELECT`/`UPDATE`/
+   `DELETE`; `WITH CHECK` валідує, які рядки можна записати через `INSERT`/
+   `UPDATE`. Якщо `WITH CHECK` опущений - використовується вираз з `USING`.
+3. **Контекст** - значення, на яке посилається policy. Стандартний спосіб
+   передачі контексту - сесійні налаштування через `SET LOCAL` /
+   `set_config()`, які зчитуються з policy через `current_setting()`.
+
+**Реалізація**
+
+Tenant-isolation policy на таблиці `orders`:
+
+```sql
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation_orders ON orders
+FOR ALL
+USING (
+    tenant_id = current_setting('app.tenant_id', true)
+)
+WITH CHECK (
+    tenant_id = current_setting('app.tenant_id', true)
+);
+```
+
+Другий аргумент `current_setting('app.tenant_id', true)` - `missing_ok`: повертає
+`NULL` замість помилки, якщо GUC не виставлено. Без `true` policy впаде з
+`ERROR: unrecognized configuration parameter` для будь-якого запиту без
+налаштованого контексту.
+
+Передача `tenant_id` у контекст транзакції через `set_config` з local-scope
+(аналог `SET LOCAL`):
+
+```sql
+BEGIN;
+SELECT set_config('app.tenant_id', '42', true);  -- true = local to transaction
+SELECT * FROM orders;  -- returns only tenant_id = '42' rows
+COMMIT;  -- app.tenant_id reset
+```
+
+Подробиці про scope і pool-poisoning - у розділі
+[`SET LOCAL` vs `SET`](#set-local-vs-set-contamination-pool).
+
+**Перевірка контексту**
+
+```sql
+SELECT current_setting('app.tenant_id', true);
+```
+
+Корисно при дебазі - запит повертає менше рядків, ніж очікувалося, перевіряти
+саме цей GUC.
+
+**Cross-tenant запити: роль з `BYPASSRLS`**
+
+Системні задачі (аналітика, міграції, адмін-операції) потребують доступу через
+тенанти. Postgres підтримує атрибут ролі `BYPASSRLS`:
+
+```sql
+CREATE ROLE analytics_readonly WITH BYPASSRLS LOGIN PASSWORD '...';
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO analytics_readonly;
+-- Cover tables created later (existing GRANT applies only to current tables):
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT ON TABLES TO analytics_readonly;
+```
+
+Запити цієї ролі ігнорують усі policy. Усі звернення через таку роль логуються
+в окремий audit log на рівні застосунку - якщо доступ використано неправомірно,
+це фіксується в логах.
+
+**Перформанс**
+
+RLS додає предикат `USING` до плану запиту. Без індексу на `tenant_id` Postgres
+змушений сканувати таблицю і фільтрувати. З composite-індексом
+`(tenant_id, <колонка з основним фільтром>)` оверхед стає незначним - 5-10% за
+бенчмарками практиків ([Crunchy Data: Row-Level Security in
+PostgreSQL](https://www.crunchydata.com/blog/row-level-security-for-tenants-in-postgres)).
+
+Обов'язкове правило: індекс на `tenant_id` (або на `(tenant_id, ...)`) на кожній
+таблиці з policy. Без нього семантика збережена, але перформанс деградує.
+
+**Обмеження**
+
+- `TRUNCATE` і `REFERENCES` не підпадають під RLS (див. розділ "`TRUNCATE` vs
+  `DELETE`"). `TRUNCATE` очищує таблицю повністю - у multi-tenant контексті це
+  означає видалення даних усіх тенантів, тому права на `TRUNCATE` мають бути
+  обмежені окремою policy на рівні `GRANT`.
+- Власник таблиці і суперюзер обходять policy за замовчуванням. `FORCE ROW
+  LEVEL SECURITY` поширює policy і на власника, але суперюзер обходить завжди.
+- Помилка у policy (наприклад, `USING (true)` через недогляд) перетворює RLS
+  на no-op. Інтеграційні тести мають перевіряти ізоляцію явно (крос-тенант
+  запит повертає 0 рядків).
+
+*Links*
+
+- [Postgres docs: Row Security Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html) - повний опис семантики
+- [Postgres docs: CREATE POLICY](https://www.postgresql.org/docs/current/sql-createpolicy.html) - синтаксис і приклади
+- [Postgres docs: CREATE ROLE](https://www.postgresql.org/docs/current/sql-createrole.html) - атрибут `BYPASSRLS`
+- [Postgres 9.5 release notes](https://www.postgresql.org/docs/release/9.5.0/) - перший реліз з RLS (січень 2016)
+
+
+
+### `SET LOCAL` vs `SET`: contamination з'єднання у pool
+
+*Summary*
+> `SET LOCAL` встановлює GUC лише до кінця поточної транзакції; `SET` (без
+> `LOCAL`) - до кінця сесії. У застосунках з connection pool використання
+> `SET` без явного скидання призводить до того, що наступний клієнт отримує
+> з'єднання з налаштуваннями попереднього - cross-request state leak.
+
+**Принцип роботи**
+
+Postgres GUC-параметри (включно з користувацькими `app.*`) мають scope:
+
+- **Session-level (`SET name = value` або `set_config(name, value, false)`)** -
+  значення зберігається до кінця сесії (= до `DISCARD ALL` або закриття
+  з'єднання).
+- **Transaction-level (`SET LOCAL name = value` або `set_config(name, value,
+  true)`)** - значення скидається на `COMMIT` або `ROLLBACK`. `SET LOCAL` поза
+  транзакцією видає `WARNING: SET LOCAL can only be used in transaction blocks`
+  і не діє.
+
+Команда `set_config(name, value, is_local)` - програмний еквівалент `SET` /
+`SET LOCAL`, повертає встановлене значення; зручна, бо параметризується через
+`$1`/`$2` у звичайному `prepared statement`.
+
+**Проблема pool contamination**
+
+Connection pool (pgbouncer у режимі `transaction` або застосунковий
+`SQLAlchemy QueuePool`, `asyncpg.Pool`) повертає з'єднання між запитами без
+закриття. Якщо запит виконав `SET app.tenant_id = '42'` без `LOCAL`:
+
+1. Транзакція завершується, з'єднання повертається у pool.
+2. Наступний запит від іншого тенанта чекає з'єднання з того ж pool, отримує
+   це саме з'єднання з налаштованим `app.tenant_id = '42'`.
+3. RLS policy фільтрує дані як для `tenant_id = '42'` - cross-tenant data leak.
+
+Та сама проблема для будь-яких сесійних GUC: `search_path`, `role`,
+`statement_timeout`. Аналогічно небезпечні сесійні об'єкти - тимчасові таблиці,
+prepared statements: вони переживають закінчення транзакції і залишаються на
+з'єднанні до кінця сесії.
+
+**Безпечні патерни**
+
+Варіант 1 - встановлення всередині транзакції з `local=true`:
+
+```python
+async with pool.acquire() as conn:
+    async with conn.transaction():
+        await conn.execute(
+            "SELECT set_config('app.tenant_id', $1, true)",
+            tenant_id,
+        )
+        result = await conn.fetch("SELECT * FROM orders")
+        # COMMIT resets app.tenant_id automatically
+```
+
+Варіант 2 - встановлення поза транзакцією з `local=false`, явний `RESET` у
+`finally`:
+
+```python
+async with pool.acquire() as conn:
+    try:
+        await conn.execute(
+            "SELECT set_config('app.tenant_id', $1, false)",
+            tenant_id,
+        )
+        result = await conn.fetch("SELECT * FROM orders")
+    finally:
+        await conn.execute("RESET app.tenant_id")
+```
+
+Варіант 1 безпечніший: Postgres гарантує скидання навіть при незловленому
+винятку всередині транзакції. Варіант 2 коректний лише за умови, що `finally`
+точно виконається; будь-який crash процесу між встановленням і `RESET` залишає
+з'єднання забрудненим.
+
+**Перевірка**
+
+Інтеграційний тест pool contamination:
+
+```python
+async def test_tenant_context_not_leaked_across_acquires(pool):
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT set_config('app.tenant_id', 'A', true)"
+            )
+    # Acquire again - either same connection or another from pool
+    async with pool.acquire() as conn:
+        value = await conn.fetchval(
+            "SELECT current_setting('app.tenant_id', true)"
+        )
+        assert value in (None, "")  # no leak from previous transaction
+```
+
+*Links*
+
+- [Postgres docs: SET](https://www.postgresql.org/docs/current/sql-set.html) - семантика session vs transaction scope
+- [Postgres docs: set_config()](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-SET) - програмна форма з `is_local`
+- [pgbouncer pooling modes](https://www.pgbouncer.org/features.html) - несумісність `transaction` pooling із сесійними GUC

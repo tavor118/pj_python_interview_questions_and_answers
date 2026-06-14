@@ -963,6 +963,48 @@ async def main():
 asyncio.run(main())
 ```
 
+**CPU-bound через `to_thread`: GIL contention**
+
+`asyncio.to_thread` часто використовують і для CPU-bound операцій (AES-шифрування,
+хешування, компресія) з метою не блокувати event loop. На малих обсягах це
+працює, але на масштабі вступає в дію механіка GIL:
+
+- Через GIL у CPython лише один потік виконує Python-байткод одночасно.
+- За замовчуванням інтерпретатор перемикає GIL приблизно кожні 5 мс
+  (`sys.getswitchinterval()` повертає `0.005` секунди починаючи з Python 3.2,
+  раніше час вимірювали кількістю байткодів через `sys.setcheckinterval`).
+- При багатьох одночасних `to_thread`-викликах потоки конкурують з потоком, який
+  виконує event loop, за GIL. Кожне перемикання потягує context switch на
+  рівні OS-планувальника; чим більше runnable-потоків, тим менший слайс CPU
+  отримує event loop.
+
+Це не означає, що `to_thread` не можна використовувати для CPU-bound операцій.
+Один невеликий виклик (мікросекунди CPU-часу) - прийнятний: за час одного
+перемикання GIL операція вже завершиться. Але **тисячі одночасних CPU-bound
+викликів через `to_thread`** деградують латентність event loop, а виграш над
+синхронним рішенням може зникнути або стати від'ємним (накладні витрати на
+context switch перевищують економію від паралелізації, особливо коли GIL не
+дозволяє реальної паралельності).
+
+Правильна евристика:
+
+- **IO-bound блокуючий виклик** (файли, legacy-DB-драйвер, syscall'и):
+  `asyncio.to_thread` - канонічний інструмент.
+- **CPU-bound операція, поодинокий виклик, обмежена кількість одночасних**:
+  `asyncio.to_thread` прийнятний, поки розмір `default_executor` (default
+  `min(32, os.cpu_count() + 4)` у Python 3.8+) не перевищується.
+- **CPU-bound операція на масштабі** (тисячі одночасних викликів):
+  `concurrent.futures.ProcessPoolExecutor` через `loop.run_in_executor(pool, ...)`,
+  щоб обчислення йшли поза GIL і поза процесом event loop.
+
+Це межа, після якої перенесення в потік не масштабується; виміряти треба
+конкретно під своє навантаження, не довіряючи інтуїції.
+
+*Links*
+
+- [Python docs: `sys.getswitchinterval()`](https://docs.python.org/3/library/sys.html#sys.getswitchinterval) - default 0.005s з Python 3.2
+- [Python 3.2 What's New: New GIL](https://docs.python.org/3/whatsnew/3.2.html#multi-threading) - перехід від bytecode-counter до timeslice-based GIL switch (Antoine Pitrou's "newgil")
+
 
 
 ### Що таке `aiohttp`
@@ -1218,3 +1260,106 @@ Async-функції запускаються через `asyncio.run()` або 
 - `QueueHandler` + окремий потік для запису - щоб не блокувати event loop.
 - Контекст у записах - `task_id`, `user_id`, `correlation_id` для відстеження.
 - Лінива підстановка форматтера: `logging.info("User %s logged in", user_id)` замість f-string.
+
+
+
+### ContextVar для request-scoped стану
+
+*Summary*
+> `contextvars.ContextVar` - стандартний механізм Python для request-scoped
+> стану в асинхронних застосунках. На відміну від `threading.local`, ContextVar
+> коректно копіюється при створенні нової таски і не "змішує" значення між
+> запитами, що виконуються в одному потоці event loop.
+
+**Обмеження `threading.local` в asyncio**
+
+`threading.local` прив'язує значення до OS-потоку. У `asyncio` один потік
+event loop одночасно обслуговує тисячі задач (корутин). Виставлене з однієї
+задачі значення видно всім іншим задачам, що виконуються тим самим потоком, -
+це не request-scoping, а global state з ілюзією ізоляції.
+
+`ContextVar` (PEP 567, з Python 3.7) натомість прив'язує значення до
+поточного контексту виконання. При створенні нової `asyncio.Task` контекст
+копіюється: задача отримує знімок поточних значень ContextVar, але її
+подальші зміни не видно іншим задачам.
+
+**Принцип роботи**
+
+```python
+import asyncio
+from contextvars import ContextVar
+
+tenant_id_ctx: ContextVar[str | None] = ContextVar("tenant_id", default=None)
+
+async def report() -> str:
+    return tenant_id_ctx.get() or "<none>"
+
+async def per_tenant_handler(tenant: str) -> None:
+    tenant_id_ctx.set(tenant)
+    print(await report())  # tenant
+
+async def main() -> None:
+    await asyncio.gather(
+        per_tenant_handler("A"),
+        per_tenant_handler("B"),
+    )
+    print(await report())  # <none> - main context unchanged
+```
+
+Кожен виклик `gather` створює нову Task для корутини. Кожна Task отримує копію
+контексту; `set()` всередині однієї Task не змінює контекст в інших Task або
+у викликача.
+
+`.set(value)` повертає `Token`, через який можна скасувати зміну (`.reset(token)`)
+- корисно для middleware-патернів, де треба явно відновити попереднє значення
+після завершення обробки.
+
+**Типове застосування**
+
+Поширений use case у вебзастосунках - request-scoped метадані: `tenant_id`,
+`user_id`, `request_id`/`correlation_id`, locale, trace context. Middleware
+кладе значення в ContextVar на вході запиту; нижчі шари (repository, logger,
+metrics) читають без передачі через сигнатури всіх функцій.
+
+```python
+from collections.abc import Awaitable, Callable
+from fastapi import Request, Response
+
+@app.middleware("http")
+async def tenant_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    tenant_id = extract_tenant_id(request)
+    token = tenant_id_ctx.set(tenant_id)
+    try:
+        return await call_next(request)
+    finally:
+        tenant_id_ctx.reset(token)
+```
+
+**Trade-off: implicit dependency**
+
+ContextVar створює неявну залежність: код читає значення, яке хтось виставив
+"десь раніше". Це робить тестування і повторне використання важчим - service,
+що читає `tenant_id` з ContextVar, неможливо викликати з cron-задачі без
+налаштування контексту.
+
+Канонічне правило (узгоджене з Service Layer патерном у
+[`architecture/architecture_patterns.md`](../architecture/architecture_patterns.md)):
+service приймає бізнес-параметри (`tenant_id`, `user_id`) **явно** через
+сигнатуру. ContextVar - тільки для cross-cutting метаданих, які не є частиною
+бізнес-контракту: tracing-ідентифікатори, locale для повідомлень про помилки,
+debug-прапорці.
+
+**Сумісність з потоками і `to_thread`**
+
+`asyncio.to_thread` копіює поточний контекст у потік: значення ContextVar,
+виставлені в корутині, видно функції, що виконується через `to_thread`. Зміни
+всередині `to_thread` не повертаються назад у корутину - копія залишається
+у потоковому контексті.
+
+*Links*
+
+- [PEP 567 - Context Variables](https://peps.python.org/pep-0567/) - дизайн, motivation, семантика копіювання при створенні Task
+- [Python docs: `contextvars`](https://docs.python.org/3/library/contextvars.html) - API і приклади

@@ -608,3 +608,473 @@ Lua-варіанти наведено у файлі [`infrastructure/database.md
 і звітує про результат. Ловить проблеми, які не видно зсередини - DNS, CDN, TLS.
 
 Інструменти: Datadog Synthetic, Pingdom, Uptrends.
+
+
+
+### Multi-tenancy: моделі ізоляції даних
+
+*Summary*
+> Multi-tenancy - це підхід, коли один екземпляр застосунку обслуговує
+> кількох клієнтів (тенантів) з ізоляцією їхніх даних. Три класичні моделі -
+> database-per-tenant, schema-per-tenant і shared schema з колонкою
+> `tenant_id` - відрізняються рівнем ізоляції, експлуатаційною складністю і
+> вартістю на тенанта.
+
+**Database-per-tenant**
+
+Окремий екземпляр БД (або принаймні окрема логічна база) на кожного тенанта.
+Ізоляція максимальна: дані фізично розділені, регуляторні вимоги на physical
+isolation (HIPAA для healthcare, PCI DSS для платіжних карт) або
+customer-managed keys (CMEK у GCP/AWS KMS) закриваються тривіально. Окремий
+connection pool, окремі бекапи, окремий моніторинг на кожного тенанта.
+
+Експлуатаційна складність зростає лінійно з кількістю тенантів: міграцію треба
+проганяти на N інстансах, патчі - так само. Підходить для enterprise з десятками
+клієнтів, не для масового SaaS.
+
+**Schema-per-tenant**
+
+Один інстанс Postgres, окрема схема на кожного тенанта. Ізоляція через `search_path`
+або повне кваліфікування `tenant_42.users`. Запити прозоро спрямовуються у схему
+поточного тенанта.
+
+Connection pool множиться на кількість схем (у Postgres `search_path` - per-session
+GUC, неможливо безпечно переключати на з'єднанні, що повертається в pool без явного
+скидання). Міграція проганяється N разів: міграція, яка на одній схемі займає 3
+секунди, на 500 схемах виконуватиметься 25 хвилин з блокуванням деплою.
+
+**Shared schema + `tenant_id`**
+
+Усі тенанти зберігаються в одних таблицях, кожен рядок має колонку `tenant_id`.
+Запити фільтрують через `WHERE tenant_id = :id`. Один pool, одна міграція, один
+моніторинг.
+
+Найдешевша і найгірша одночасно: ізоляція тримається на дисципліні розробників.
+Перший забутий `WHERE` у звіті чи фоновій задачі - cross-tenant data leak. На
+масштабі 100+ розробників і тисяч запитів імовірність такого промаху наближається
+до 1, а ціна одного - судовий позов про витік даних. Для 1000+ тенантів shared
+schema залишається практичним вибором, але **виключно** в комбінації з механічним
+захистом - PostgreSQL Row-Level Security (див. `infrastructure/sql.md` розділ
+"PostgreSQL Row-Level Security").
+
+**Порівняння**
+
+| Модель | Ізоляція | Вартість на тенанта | Сценарії |
+| --- | --- | --- | --- |
+| Database-per-tenant | Максимальна | Висока (інстанс + pool + бекапи) | Регульовані ринки, < 100 клієнтів |
+| Schema-per-tenant | Висока | Середня (схема + N міграцій) | 100-500 клієнтів, помірні compliance-вимоги |
+| Shared schema + RLS | Логічна (на рівні БД) | Низька (один pool) | SaaS на 1000+ клієнтів |
+
+**Гібридні підходи**
+
+Реальні системи часто комбінують моделі: shared schema для більшості клієнтів
+плюс окрема БД для одного-двох enterprise-клієнтів з вимогою фізичної ізоляції.
+Routing вирішується на рівні connection pool / DSN resolver.
+
+*Links*
+
+- [Microsoft: Multi-tenant SaaS database tenancy patterns](https://learn.microsoft.com/azure/azure-sql/database/saas-tenancy-app-design-patterns) - база патернів
+- [AWS: SaaS storage strategies](https://docs.aws.amazon.com/whitepapers/latest/saas-storage-strategies/saas-storage-strategies.html)
+
+
+
+### Defense in Depth для multi-tenant ізоляції
+
+*Summary*
+> Defense in depth - архітектурний принцип, за яким критична інваріанта
+> (для multi-tenant SaaS це ізоляція даних між тенантами) захищається кількома
+> незалежними шарами. Жоден шар окремо не достатній, але обхід усіх одночасно
+> вимагає одночасних помилок у різних компонентах.
+
+**Проблема, яку вирішує**
+
+У shared-schema multi-tenant системі (див. розділ "Multi-tenancy: моделі ізоляції
+даних") одна забута умова `WHERE tenant_id = :id` у звіті, фоновій задачі чи raw
+SQL-аналітиці призводить до витоку даних одного клієнта іншому. Покладатися
+виключно на дисципліну розробників - антипатерн: на масштабі 100+ розробників і
+тисяч запитів імовірність помилки наближається до 1.
+
+**Три шари захисту**
+
+1. **HTTP middleware / транспортний шар.** Витягує ідентифікатор тенанта з
+   автентифікаційного токена (JWT, сесійний cookie, Telegram auth-payload),
+   валідує і кладе у `contextvars.ContextVar` (див. `python/async.md` розділ
+   "ContextVar для request-scoped стану"). Завдання шару - відкинути запит без
+   валідного `tenant_id` до досягнення бізнес-логіки.
+2. **ORM / repository шар.** Автоматично інжектить `WHERE tenant_id = :id` у
+   кожен запит через декоратор `@tenant_scoped` або кастомний `QueryBuilder`.
+   Repository в конструкторі вимагає `tenant_id` обов'язковим параметром;
+   спроба викликати без нього - `ValueError`.
+3. **PostgreSQL Row-Level Security.** Останній рубіж: `CREATE POLICY` на кожній
+   таблиці з `tenant_id`, який звіряє `current_setting('app.tenant_id')` з
+   колонкою рядка. Деталі реалізації - у `infrastructure/sql.md` розділі
+   "PostgreSQL Row-Level Security".
+
+**Необхідність кількох шарів одночасно**
+
+- Middleware обходить будь-який код, що не йде через HTTP: cron-задачі,
+  manage-команди, фонові воркери, міграції. Якщо такий код звертається до БД без
+  явного встановлення `tenant_id` у контекст - middleware взагалі не виконається.
+- ORM обходить raw SQL для складної аналітики чи дебагу. Repository, який
+  автоматично додає `WHERE tenant_id`, не контролює запит, написаний через
+  `session.execute(text("SELECT ..."))`.
+- RLS на рівні БД працює завжди для запитів через звичайні ролі, але вимагає
+  правильно виставлений GUC (`SET LOCAL app.tenant_id`) перед запитом і не
+  застосовується до `TRUNCATE`/`REFERENCES` (див. `infrastructure/sql.md`
+  розділ "TRUNCATE vs DELETE").
+
+Сукупний обхід вимагає одночасно: пропустити middleware-валідацію, написати raw
+SQL без `WHERE` і виконати його через роль з `BYPASSRLS` (або в адмін-сесії з
+вимкненим policy enforcement). Імовірність всіх трьох помилок одночасно - на
+порядки нижча за одну.
+
+**Застосовність поза multi-tenant**
+
+Той самий принцип переноситься на будь-яку інваріанту, ціна порушення якої
+несумісна з імовірнісним захистом: фінансові операції (input validation + service
+constraint + DB CHECK), авторизація (route guard + policy check + RLS), PII-захист
+(application-level encryption + column encryption + audit log).
+
+
+
+### Service Layer (Headless архітектура)
+
+*Summary*
+> Service Layer - архітектурний шар між транспортом (HTTP-handler, бот-handler,
+> CLI) і шаром доступу до даних. Містить бізнес-логіку у формі, не прив'язаній
+> до конкретного transport'а: той самий `OrderService.create()` викликається з
+> REST-endpoint, бот-команди, cron-задачі і unit-тесту без змін.
+
+**Проблема, яку вирішує**
+
+Типовий стартовий handler виглядає так:
+
+```python
+@router.message(F.text == "/my_orders")
+async def my_orders(message: Message, session: AsyncSession):
+    result = await session.execute(
+        select(Order).where(Order.user_id == message.from_user.id)
+    )
+    orders = result.scalars().all()
+    text = "\n".join(f"{o.id}: {o.title}" for o in orders)
+    await message.answer(text)
+```
+
+Проблеми: handler знає про БД, бізнес-логіка змішана з форматуванням, відсутня
+ізоляція по тенанту, той самий сценарій неможливо викликати з REST API без
+копіпасту. Unit-тест без mock'а Telegram написати неможливо.
+
+**Принцип роботи**
+
+Шари і напрямок залежностей:
+
+```
+handlers/      ← transport (aiogram, FastAPI, CLI)
+   ↓
+services/      ← domain logic (transport-agnostic)
+   ↓
+repositories/  ← data access (tenant-scoped)
+   ↓
+database/      ← ORM models, raw queries
+```
+
+Handler виконує дві речі: парсить вхідні дані з transport-формату у domain-аргументи
+і форматує доменний результат у transport-відповідь. Між ними - єдиний виклик
+сервісу.
+
+Service приймає всі необхідні параметри (включно з `tenant_id`, `user_id`,
+`correlation_id`) **явно**, через сигнатуру. Не звертається до
+`request.state`/`ContextVar`/`current_user` напряму - це робить service викликаним
+з будь-якого entrypoint без HTTP-контексту. Cross-cutting метадані (tracing,
+locale) - окремий випадок, де `ContextVar` виправданий (див. `python/async.md`
+розділ "ContextVar для request-scoped стану").
+
+Repository ("шлюз" / "gateway") знає тільки про SQL і таблиці. Не імпортує
+сервіси, не виконує криптографію, не валідує бізнес-правила. Tenant-scoping
+застосовується тут (див. розділ "Defense in Depth для multi-tenant ізоляції").
+
+**Реалізація**
+
+```python
+# services/order_service.py - transport-agnostic
+class OrderService:
+    def __init__(self, order_repo: OrderRepository) -> None:
+        self.order_repo = order_repo
+
+    async def create_order(
+        self,
+        tenant_id: str,
+        user_id: int,
+        items: list[OrderItem],
+        phone: str,
+    ) -> Order:
+        encrypted_phone = await asyncio.to_thread(encrypt_aes256, phone)
+        return await self.order_repo.insert(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            items=items,
+            encrypted_phone=encrypted_phone,
+        )
+
+# handlers/telegram.py - thin transport
+@router.message(F.text.startswith("/order"))
+async def handle_order(message: Message, service: OrderService) -> None:
+    tenant_id = get_tenant_id()
+    order = await service.create_order(
+        tenant_id=tenant_id,
+        user_id=message.from_user.id,
+        items=parse_items(message.text),
+        phone=message.contact.phone_number,
+    )
+    await message.answer(f"Order #{order.id} created.")
+
+# handlers/api.py - same service, different transport
+@router.post("/orders")
+async def create_order(
+    body: CreateOrderRequest,
+    service: OrderService = Depends(get_order_service),
+    tenant_id: str = Depends(get_tenant_id_from_jwt),
+) -> OrderResponse:
+    order = await service.create_order(
+        tenant_id=tenant_id,
+        user_id=body.user_id,
+        items=body.items,
+        phone=body.phone,
+    )
+    return OrderResponse.from_domain(order)
+```
+
+**Enforcement**
+
+Розділення шарів живе, лише поки його перевіряють механічно. Прийнятні варіанти:
+
+- Лінтер на імпорти: `import-linter` (Python) або кастомне правило ruff, що
+  забороняє імпорт `repositories.*` / `database.*` з модулів `handlers.*`.
+  Конфіг виконується в pre-commit і CI.
+- Архітектурний тест: pytest, що ходить по AST модулів `handlers/` і падає,
+  якщо знаходить заборонений імпорт.
+
+Без автоматичного enforcement правило поступово порушується: під дедлайн хтось
+імпортує repository напряму "тимчасово", далі копіюють цей патерн.
+
+**Канонічна перевірка шарування**
+
+Якщо service неможливо протестувати без mock'а transport-бібліотеки (aiogram,
+FastAPI, Flask, Click) - шарування порушено. Канонічний unit-тест сервісу
+використовує реальний repository з in-memory БД (SQLite) і не торкається
+жодного `Message`/`Request`/`Context` об'єкта.
+
+**Зв'язок з іншими патернами**
+
+- [Hexagonal/Onion](#hexagonal-vs-onion) - Service Layer є імплементацією
+  application core у цих архітектурах; ports - сигнатури сервісів, adapters -
+  handlers і repositories.
+- DDD ([`ddd.md`](ddd.md)) - Service Layer відповідає Application Services
+  рівню; не плутати з Domain Services, які живуть у Domain шарі.
+
+
+
+### Feature Flags
+
+*Summary*
+> Feature flag - runtime-перемикач, який ввімкнення/вимкнення функціональності
+> робить операційним рішенням, а не релізом. На відміну від A/B-тесту (де
+> розподіл випадковий і метрики порівнюються), feature flag - детермінований
+> вмикач за критеріями: тенант, користувач, регіон, версія клієнта.
+
+**Проблема, яку вирішує**
+
+Без feature flag нова функціональність потрапляє до користувачів разом з
+деплоєм. Якщо щось ламається - rollback всього релізу. Якщо клієнт A просить
+обмежений доступ до feature X - починається `if client_id == "A"` у коді,
+згодом `if client_id in ("A", "C") and region != "EU"` тощо. На сотні умов код
+перетворюється на колекцію винятків, кожен реліз ламає двох клієнтів.
+
+Антипатерн - кодувати клієнтську логіку через `if`. Вмикач має бути даними
+(рядок у БД, запис у Redis), а код - дивитися на стан вмикача.
+
+**Принцип роботи**
+
+Feature flag - функція `is_enabled(flag_id, context) -> bool`, де `context`
+містить ідентифікатор тенанта/користувача та інші атрибути. Реалізація читає
+конфігурацію з джерела істини (БД / Redis / spec-файл) і повертає рішення.
+
+Source of truth тримається в одному місці. Поширені варіанти:
+
+- Таблиця `feature_flags(tenant_id, flag_name, enabled)` у Postgres з кешем у
+  Redis. Просто, прозоро, дозволяє audit.
+- Окремий сервіс (LaunchDarkly, Unleash, Flagsmith) - корисний, коли flag
+  застосовується не лише backend'ом, а й мобільним/веб-клієнтом.
+
+Перевірка прапорця має бути швидкою (мікросекунди): кеш у пам'яті процесу з
+TTL 30-60 секунд або push-інвалідація через pub/sub.
+
+**Реалізація**
+
+```python
+class FeatureFlag(StrEnum):
+    BOOKING_ENABLED = "booking_enabled"
+    NEW_BILLING_FLOW = "new_billing_flow"
+
+class FeatureFlagChecker:
+    def __init__(self, repo: FeatureFlagRepo, cache: Cache) -> None:
+        self.repo = repo
+        self.cache = cache
+
+    async def is_enabled(
+        self, flag: FeatureFlag, tenant_id: str | None = None
+    ) -> bool:
+        key = f"ff:{tenant_id or 'global'}:{flag.value}"
+        cached = await self.cache.get(key)
+        if cached is not None:
+            return cached == "1"
+        value = await self.repo.is_enabled(flag, tenant_id)
+        await self.cache.set(key, "1" if value else "0", ttl=60)
+        return value
+```
+
+**Типи прапорців**
+
+- **Release toggle** - вмикає недописану функціональність у production без
+  експозиції користувачам. Видаляється після релізу.
+- **Operational toggle** - вмикач для ресурсоємної функціональності (важкі
+  звіти, експериментальні обчислення). Залишається довго.
+- **Permission toggle** - надає доступ окремим тенантам/користувачам (preview,
+  early access, enterprise-tier feature). Залишається назавжди.
+- **Experiment toggle** - частина A/B-тесту. Розподіл випадковий, не операційний.
+
+Змішування типів у одній таблиці прапорців ускладнює прибирання: release
+toggle, що "пропустили видалити", згодом сприймається як operational.
+
+**Відмінність від A/B-тестування**
+
+A/B-тест випадково розподіляє користувачів між варіантами і порівнює метрики.
+Feature flag детерміновано вмикає для заздалегідь визначених критеріїв.
+Експеримент може використовувати flag-інфраструктуру, але це окремий випадок -
+для повноцінних експериментів кращі спеціалізовані інструменти (Optimizely,
+GrowthBook).
+
+**Обмеження**
+
+- Кожен flag - технічний борг. Код з `if flag.is_enabled(...)` ускладнює
+  читання і тестування. Видалення release-прапорців після релізу - регулярна
+  операція, інакше борг накопичується.
+- Перевірка прапорця в гарячому шляху має бути дешевою. Виклик до зовнішнього
+  сервісу на кожен запит - неприйнятний; обов'язковий локальний кеш.
+
+*Links*
+
+- [Pete Hodgson: Feature Toggles](https://martinfowler.com/articles/feature-toggles.html) - категоризація і життєвий цикл прапорців
+
+
+
+### Plugin-модулі через базовий клас
+
+*Summary*
+> Plugin-модулі - підхід, при якому бізнес-функціональність ділиться на
+> самодостатні модулі за єдиним контрактом (наприклад, абстрактний клас
+> `BaseModule`). Реєстрація модуля у системі - вписування його у registry;
+> per-tenant ввімкнення - комбінація з [feature flags](#feature-flags).
+
+**Проблема, яку вирішує**
+
+Multi-tenant SaaS обростає функціональністю, яку одні тенанти використовують,
+інші - ні. Без модульності розкидані `if`-перевірки тенантських прапорців
+з'являються через увесь код: `if tenant.has_booking:`, `if tenant.has_shop:`.
+Додавання нової бізнес-вертикалі вимагає правок у десятках місць.
+
+Альтернатива - винести кожну вертикаль (booking, shop, billing, recruiting)
+у самодостатній модуль з єдиним інтерфейсом. Тоді нова вертикаль додається як
+один файл; вмикання per-tenant - один запис у feature flags.
+
+**Принцип роботи**
+
+Контракт описується абстрактним базовим класом (ABC) з обов'язковими
+методами/property. Реалізації успадковуються і виконують контракт. Центральний
+`ModuleRegistry` при старті застосунку імпортує всі реалізації (через
+`importlib`/`pkgutil` або явний список) і реєструє їх.
+
+Модулі не імпортують одне одного. Якщо `BookingModule` потребує реагувати на
+подію з `BillingModule` - комунікація через event bus (Redis pub/sub, Kafka,
+in-process pub/sub). Це зберігає незалежність модулів і дозволяє вмикати їх
+вибірково.
+
+**Реалізація**
+
+```python
+from abc import ABC, abstractmethod
+
+class BaseModule(ABC):
+    """Contract for pluggable business modules.
+
+    Subclasses declare a unique id, an optional feature flag and the entry
+    points the host wires up at startup (routes, menu buttons, scheduled jobs).
+    """
+
+    feature_flag: FeatureFlag | None = None
+    enabled_by_default: bool = False
+
+    @property
+    @abstractmethod
+    def module_id(self) -> str:
+        """Unique snake_case identifier, e.g. 'booking'."""
+
+    @property
+    @abstractmethod
+    def display_name(self) -> str:
+        """Human-readable name shown in UI."""
+
+    @abstractmethod
+    async def setup(self, container: Container) -> None:
+        """Register routes, handlers, scheduled jobs into the host."""
+
+    async def is_active(self, tenant_id: str) -> bool:
+        if self.feature_flag is None:
+            return self.enabled_by_default
+        return await container.flag_checker.is_enabled(
+            self.feature_flag, tenant_id
+        )
+
+
+class BookingModule(BaseModule):
+    feature_flag = FeatureFlag.BOOKING_ENABLED
+
+    @property
+    def module_id(self) -> str:
+        return "booking"
+
+    @property
+    def display_name(self) -> str:
+        return "Booking"
+
+    async def setup(self, container: Container) -> None:
+        container.router.include_router(booking_router)
+        container.scheduler.add_job(remind_upcoming_bookings, "cron", minute="*/5")
+
+
+class ModuleRegistry:
+    def __init__(self, modules: list[BaseModule]) -> None:
+        self._modules = {m.module_id: m for m in modules}
+
+    async def active_modules(self, tenant_id: str) -> list[BaseModule]:
+        return [m for m in self._modules.values() if await m.is_active(tenant_id)]
+```
+
+**Зв'язок з іншими патернами**
+
+- [Feature Flags](#feature-flags) - механіка per-tenant ввімкнення. Plugin-модуль
+  поєднує реєстрацію з умовою активації.
+- [Service Layer](#service-layer-headless) - модулі складаються з сервісів;
+  модуль реєструє свої сервіси у DI-контейнері в `setup()`.
+- [Hexagonal/Onion](#hexagonal-vs-onion) - модуль закриває одну business
+  capability за принципом vertical slice; внутрішньо може мати власне
+  розшарування.
+
+**Обмеження**
+
+- Контракт `BaseModule` має бути стабільним. Зміна сигнатури `setup()` - це
+  breaking change для всіх модулів. Тому контракт тримають мінімальним.
+- Глобальний стан між модулями (спільний кеш, спільна БД) повертає неявний
+  coupling. Якщо модулі ділять стан - або це спільна інфраструктура
+  (`SharedKernel` в DDD-термінах), або один з модулів насправді є частиною
+  іншого.
