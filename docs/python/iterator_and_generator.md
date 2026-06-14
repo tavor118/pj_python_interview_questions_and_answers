@@ -150,6 +150,28 @@ class Iterator(Iterable):
 
 По ітератору можна пройтись тільки один раз.
 
+**Вимога `__iter__` для протоколу `for`**
+
+`for` не викликає `__next__` напряму - він спершу запитує ітератор через
+`iter(obj)`. Сам `iter()`, за документацією, "raises `TypeError` if it does not
+support either of those protocols" (`__iter__` або застарілий `__getitem__` з
+цілочисельним індексом):
+
+```python
+class OnlyNext:
+    def __next__(self):
+        return 1
+
+obj = OnlyNext()
+next(obj)           # 1 - direct call works
+for x in obj: ...   # TypeError: 'OnlyNext' object is not iterable
+```
+
+Реалізація лише `__next__` без `__iter__` технічно можлива, але такий об'єкт не
+сумісний із циклом `for`, розпакуванням, `list()` тощо - усі вони покладаються на
+`iter()`. Канонічна форма ітератора реалізує обидва методи, де `__iter__` повертає
+`self`.
+
 ```python
 my_list = [1, 2, 3, 4, 5]
 my_iterator = iter(my_list)

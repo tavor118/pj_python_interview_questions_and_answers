@@ -175,6 +175,30 @@ asyncio.run(main(urls))  # Run the event loop
 (співпрограму): вона призупиняє своє виконання під час `await`, очікує асинхронної події 
 та продовжує роботу.
 
+**Історична еволюція корутин у Python**
+
+Перехід від генератор-базованих корутин до нативного синтаксису відбувся не за один
+крок:
+
+- **Python 3.4** - модуль `asyncio` додано до стандартної бібліотеки. Корутини
+  визначалися як генератори, обгорнуті декоратором `@asyncio.coroutine`; передача
+  керування - через `yield from`.
+- **Python 3.5** ([PEP 492](https://peps.python.org/pep-0492/)) - додано нативний
+  синтаксис `async def` / `await`, окремий від генераторів. `await` - заміна для
+  `yield from`, але семантично прив'язана до корутин, а не до загального протоколу
+  ітерації.
+- **Python 3.8** - декоратор `@asyncio.coroutine` оголошено застарілим (deprecated)
+  з нотаткою "will be removed in version 3.10".
+- **Python 3.11** - `@asyncio.coroutine` остаточно видалено (whatsnew 3.11:
+  "Removed the `@asyncio.coroutine` decorator enabling legacy generator-based
+  coroutines to be compatible with async/await code").
+
+Нативні корутини (`async def`) існують із Python 3.5 і весь цей час були окремою
+сутністю від генераторів на рівні API. У 3.11 видалили саме legacy-варіант із
+декоратором `@asyncio.coroutine`, а не нативну реалізацію. Внутрішні CPython-механізми
+(паузи, збереження стану кадру) історично спільні з генераторами, проте з точки зору
+API `async def` ніколи не була generator-based.
+
 
 
 ### Що таке `event loop` (цикл подій) в asyncio і як він працює?
