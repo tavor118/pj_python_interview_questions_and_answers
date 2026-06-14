@@ -991,8 +991,10 @@ context switch перевищують економію від паралеліз
 - **IO-bound блокуючий виклик** (файли, legacy-DB-драйвер, syscall'и):
   `asyncio.to_thread` - канонічний інструмент.
 - **CPU-bound операція, поодинокий виклик, обмежена кількість одночасних**:
-  `asyncio.to_thread` прийнятний, поки розмір `default_executor` (default
-  `min(32, os.cpu_count() + 4)` у Python 3.8+) не перевищується.
+  `asyncio.to_thread` прийнятний, поки розмір `default_executor` не
+  перевищується (default `ThreadPoolExecutor` `max_workers` - `min(32,
+  os.cpu_count() + 4)` у Python 3.8-3.12; з Python 3.13 -
+  `min(32, (os.process_cpu_count() or 1) + 4)`).
 - **CPU-bound операція на масштабі** (тисячі одночасних викликів):
   `concurrent.futures.ProcessPoolExecutor` через `loop.run_in_executor(pool, ...)`,
   щоб обчислення йшли поза GIL і поза процесом event loop.

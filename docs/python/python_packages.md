@@ -167,118 +167,12 @@ Flake8 має схожий на pylint основний функціонал.
 
 
 
-### SQLAlchemy (Core та ORM частин)
+### SQLAlchemy
 
-**SQLAlchemy** — це популярна бібліотека Python для роботи з базами даних, яка надає 
-два основних рівні абстракції: Core (рівень низького рівня) та ORM 
-(рівень об'єктно-реляційного мапінгу).
-
-**SQLAlchemy Core** - це низькорівнева частина бібліотеки, яка дозволяє працювати 
-з SQL-запитами безпосередньо, використовуючи Python-об’єкти.
-
-- Забезпечує об'єктно-орієнтоване представлення таблиць, стовпців і типів даних через `Table`, `Column` і `MetaData`.
-- Надає інструменти для створення SQL-запитів за допомогою конструктора запитів (`select`, `insert`, `update`, `delete`).
-- Дозволяє виконувати SQL-запити через об'єкти з'єднань (`Connection`) та управління транзакціями.
-
-```python
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, select
-
-engine = create_engine("sqlite:///example.db")  # Create an engine and metadata
-metadata = MetaData()
-
-users = Table(  # Define a table
-    "users",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("name", String),
-    Column("age", Integer),
-)
-
-metadata.create_all(engine)  # Create the table
-
-
-with engine.connect() as connection:  # Insert data
-    connection.execute(users.insert(), [{"name": "Alice", "age": 25}, {"name": "Bob", "age": 30}])
-
-
-with engine.connect() as connection:  # Query data
-    result = connection.execute(select(users.c.name, users.c.age))
-    for row in result:
-        print(row)
-```
-
-**SQLAlchemy ORM** - це високорівнева частина, яка дозволяє працювати з базою даних 
-через Python-об'єкти, створюючи маппінг між таблицями та класами.
-
-- Замість роботи з рядками таблиць, розробник оперує об'єктами, які відповідають записам у таблицях.
-- Включає декларативний стиль для оголошення моделей за допомогою класів, які успадковуються від `Base`.
-- Підтримує сесії (`Session`) для управління об'єктами, транзакціями та зв'язком із базою даних.
-
-```python
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-
-Base = declarative_base()  # Define the base and engine
-engine = create_engine("sqlite:///example.db")
-
-class User(Base):  # Define a model
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    age = Column(Integer)
-
-Base.metadata.create_all(engine)  # Create the table
-
-Session = sessionmaker(bind=engine)  # Create a session
-session = Session()
-
-session.add(User(name="Alice", age=25))  # Add and query data
-session.add(User(name="Bob", age=30))
-session.commit()
-
-for user in session.query(User).all():  # Query using ORM
-    print(user.name, user.age)
-```
-
-- Core підходить для низькорівневого доступу до бази даних, дозволяючи виконувати складні SQL-запити, не створюючи об’єктів Python.
-- ORM полегшує роботу, якщо потрібна тісна інтеграція об'єктів Python із базою даних, і зменшує кількість коду для роботи з даними.
-
-
-
-### Що таке прогрів пула (pool warm-up) у SQLAlchemy?
-
-*Summary*
-> **Прогрів пула** - це попереднє створення з'єднань з БД до того, як вони реально знадобляться.
-> Це усуває "холодний старт" перших запитів і дозволяє завчасно зловити проблеми з підключенням.
-
-За замовчуванням SQLAlchemy використовує **ліниву ініціалізацію** - з'єднання з БД 
-створюються лише за потребою. Перший реальний запит може бути помітно повільнішим: 
-TCP-handshake, TLS, аутентифікація, віддалений сервер тощо.
-
-**Прогрів дає:**
-
-- меншу затримку на перших запитах після старту;
-- ранню діагностику - якщо БД недоступна або credentials невірні, помилка вилазить ще під час warm-up, а не на першому користувацькому трафіку;
-- передбачувану кількість з'єднань до моменту, коли почне приходити трафік (важливо при autoscaling).
-
-```python
-from sqlalchemy import create_engine
-
-engine = create_engine(
-    "postgresql+asyncpg://user:pass@host/db",
-    pool_size=10,
-    max_overflow=5,
-)
-
-# Warm up the pool - open and immediately return all baseline connections
-for _ in range(engine.pool.size()):
-    conn = engine.connect()
-    conn.close()
-```
-
-Зазвичай прогрів робиться у startup-хуку застосунку (наприклад, `@app.on_event("startup")` 
-для FastAPI). Особливо актуально для high-load сервісів і коротких health-check вікон.
+SQLAlchemy винесений у окремий файл - див.
+[`python_framework/sqlalchemy.md`](../python_framework/sqlalchemy.md): Core vs
+ORM, Lazy/Eager loading, `Session` vs `sessionmaker`, connection pool параметри,
+прогрів пула.
 
 
 

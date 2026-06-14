@@ -34,6 +34,7 @@ nav:
     - Django: python_framework/django.md
     - DRF: python_framework/drf.md
     - Fast API: python_framework/fast_api.md
+    - SQLAlchemy: python_framework/sqlalchemy.md
   - Computer Science:
     - computer_science.md
     - OOP: computer_science/oop.md

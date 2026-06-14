@@ -550,6 +550,18 @@ Lua-варіанти наведено у файлі [`infrastructure/database.md
 Найпоширеніше - Redis з Lua-скриптом для sliding window. Конкретний код -
 див. [`infrastructure/database.md`](../infrastructure/database.md).
 
+**Готові імплементації**
+
+- **SlowAPI** ([github.com/laurentS/slowapi](https://github.com/laurentS/slowapi)) -
+  FastAPI/Starlette-сумісна обгортка над `limits`. Декоратор
+  `@limiter.limit("5/minute")` на handler'і; backend storage - in-memory,
+  Redis або Memcached. Підходить для базового per-IP / per-API-key ліміту.
+- **`limits`** - чистий Python-пакет з реалізаціями fixed/sliding window і
+  moving window; основа SlowAPI.
+- **Envoy `ratelimit` filter** / API Gateway / Nginx `limit_req` - rate
+  limit на рівні infrastructure перед application'ом; масштабує без коду в
+  додатку.
+
 
 
 ### Як зрозуміти, що застосунок зламався?
