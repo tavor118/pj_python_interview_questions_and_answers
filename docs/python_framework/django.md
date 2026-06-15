@@ -133,62 +133,243 @@ with transaction.atomic():
 	Product.objects.create(name="Smartphone", category=category)
 ```
     
-- **Raw SQL**    
-    - Якщо потрібно виконати нестандартний SQL-запит, ORM дозволяє це зробити через метод `raw()`.
-    
+- **Raw SQL**
+    - Якщо потрібно виконати нестандартний SQL-запит, ORM дозволяє це зробити через метод `raw()`, через `RawSQL`-вираз для вбудування шматка у звичайний ORM-запит, або через `connection.cursor()` для повністю довільного SQL.
+
 ```python
 products = Product.objects.raw("SELECT * FROM app_product WHERE price > %s", [1000])
 ```
 
-
-
-### Компоненти Django ORM для запитів до БД
-
-Django ORM має кілька ключових компонентів, які забезпечують зручну та ефективну роботу
-з запитами до бази даних. 
-
-- QuerySet - надає основні інструменти для побудови SQL-запитів до бази даних.
-- ModelManager - є "входом" до QuerySet, який додає можливість викликати стандартні та кастомні методи на рівні моделі.
-- Q - використовується для побудови складних логічних умов у запитах, що дозволяє гнучко фільтрувати дані.
-
-- **QuerySet** - це набір об'єктів, отриманих з бази даних за допомогою запитів. Це основний інструмент для отримання даних з таблиці. Він є ітерованим і може виконувати різноманітні операції для отримання, фільтрації, сортування, агрегування даних. QuerySet дозволяє будувати SQL-запити через Python, не пишучи сирий SQL.
-- QuerySet будує SQL-запит "ліниво". Це означає, що запит до бази даних відбувається лише тоді, коли результати необхідно отримати (наприклад, через ітерацію).
+`Manager.raw(sql, params)` повертає `RawQuerySet` - lazy, як звичайний QuerySet.
+Параметри обов'язково передавати через placeholder (`%s` для більшості бекендів,
+`?` для SQLite) - **ніколи не інтерполювати** через f-string чи `%`-формат, інакше
+відкривається SQL injection.
 
 ```python
-products = Product.objects.all()  # Get all objects
-laptops = Product.objects.filter(name__icontains="laptop")  # Filter
-sorted_products = Product.objects.order_by('-price')  # Sort
-top_five = Product.objects.all()[:5]  # Limit
+# Safe: parameterized
+Product.objects.raw("SELECT * FROM app_product WHERE name = %s", [user_input])
+
+# UNSAFE: never do this
+Product.objects.raw(f"SELECT * FROM app_product WHERE name = '{user_input}'")
 ```
-    
-- **ModelManager** - це інтерфейс для взаємодії з QuerySet. Кожна модель у Django автоматично має менеджер об'єктів `objects`, який дозволяє виконувати операції для отримання даних. Менеджер відповідає за створення, фільтрацію, видалення об'єктів та їх отримання з бази даних.  Менеджери можна кастомізувати, щоб додавати власну логіку.
+
+`raw()` мапить колонки на атрибути моделі за іменами; колонки без відповідного
+поля можна додати як `RawQuerySet[i].extra_attr`. Якщо моделі не існує - тоді
+`connection.cursor()` з `cursor.execute(sql, params)` повертає dict/tuple-рядки:
+
+```python
+from django.db import connection
+
+with connection.cursor() as cursor:
+    cursor.execute("SELECT id, name FROM app_product WHERE price > %s", [1000])
+    rows = cursor.fetchall()        # List of tuples
+```
+
+Для вбудування невеликого SQL-фрагмента у звичайний ORM-запит - `RawSQL`-вираз:
+
+```python
+from django.db.models.expressions import RawSQL
+
+products = Product.objects.annotate(
+    discount=RawSQL("price * %s", [0.1]),     # Inline SQL fragment in annotate
+)
+```
+
+
+
+### `QuerySet`
+
+*Summary*
+> **QuerySet** - набір об'єктів моделі, який представляє SQL-запит до БД у
+> декларативній формі. Будується **ліниво**: ланцюжкові методи (`.filter()`,
+> `.order_by()`, `.annotate()`) накопичують конфігурацію без походу в БД;
+> SQL виконується лише при операціях, що реально потребують даних (ітерація,
+> `list()`, `len()`, агрегати). Lazy-семантика - джерело типової проблеми N+1
+> при ітерації по зв'язаних об'єктах.
+
+QuerySet ітерується, фільтрується, сортується, агрегується через chainable-API:
+
+```python
+products = Product.objects.all()                          # Get all objects
+laptops = Product.objects.filter(name__icontains="laptop")  # Filter
+sorted_products = Product.objects.order_by('-price')      # Sort
+top_five = Product.objects.all()[:5]                      # Limit
+```
+
+**Що активує виконання QuerySet**
+
+SQL до БД летить лише при операціях, які реально потребують даних:
+
+- ітерація (`for obj in qs`);
+- зріз з конкретним індексом - `qs[5]` (зріз з відкритим кінцем `qs[:5]` лишається lazy);
+- `list(qs)`, `len(qs)`, `bool(qs)`, `repr(qs)`;
+- агрегатні методи з результатом (`.count()`, `.aggregate()`, `.first()`, `.last()`, `.exists()`);
+- pickle/cache.
+
+Ланцюжкові методи (`.filter()`, `.exclude()`, `.order_by()`, `.annotate()`,
+`.values()`) **не** виконують SQL - повертають новий QuerySet з накопиченою
+конфігурацією.
+
+**Проблема N+1**
+
+Lazy-семантика стає пасткою при ітерації по зв'язаним об'єктам:
+
+```python
+books = Book.objects.all()           # 1 query
+for book in books:
+    print(book.author.name)          # +1 query per book -> N additional
+```
+
+`book.author` для кожної ітерації робить окремий `SELECT FROM author WHERE id=...`.
+На 1000 книг - 1001 запит замість 1. Сценарій типовий також у DRF серіалізаторах
+із `source='related.field'`.
+
+**Виявлення**
+
+- [`django-debug-toolbar`](https://django-debug-toolbar.readthedocs.io/) - панель з
+  переліком SQL-запитів на сторінці;
+- [`django-silk`](https://github.com/jazzband/django-silk) - профайлер з
+  агрегацією за view;
+- `django.db.connection.queries` - програмно у тестах:
+
+  ```python
+  from django.db import connection
+  from django.test import TestCase
+
+  class N1Test(TestCase):
+      def test_books_list(self):
+          with self.assertNumQueries(1):
+              list(Book.objects.select_related("author"))
+  ```
+
+`assertNumQueries(N)` - регресійний guard на конкретну кількість запитів;
+ламається, якщо хтось додає неоптимізоване звернення.
+
+**Запобігання**
+
+Використати `select_related` для `ForeignKey`/`OneToOneField` (один JOIN) або
+`prefetch_related` для `ManyToManyField` і зворотних `ForeignKey` (другий запит
++ join у Python). Деталі - у [розділі нижче](#select_related-prefetch_related).
+
+
+
+### `ModelManager`
+
+*Summary*
+> **ModelManager** - інтерфейс між моделлю і QuerySet'ом. Стандартний `objects` -
+> екземпляр `models.Manager()`, доступний на кожній моделі автоматично. Кастомні
+> менеджери дозволяють винести специфічні для домену запити з views/serializers
+> у клас поруч із моделлю (паралель до Repository pattern). Канонічний шлях
+> побудови - через `Manager.from_queryset()`, який робить методи доступними і на
+> менеджері, і в chain'і.
 
 ```python
 class ProductManager(models.Manager):
-	def expensive_products(self):
-		return self.filter(price__gt=1000)
+    def expensive_products(self):
+        return self.filter(price__gt=1000)
+
 
 class Product(models.Model):
-	name = models.CharField(max_length=100)
-	price = models.DecimalField(max_digits=10, decimal_places=2)
+    name = models.CharField(max_length=100)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
 
-	objects = ProductManager()  # Connecting a custom manager
+    objects = ProductManager()                # Connecting a custom manager
 
-expensive = Product.objects.expensive_products()  # Using a custom manager
+
+expensive = Product.objects.expensive_products()
 ```
 
-- **Q (об'єкт умов)** - використовується для створення складних умов у запитах, які об'єднують кілька фільтрів через логічні оператори `AND` та `OR`. Це дозволяє будувати гнучкі запити, які не можна створити через стандартні методи `filter()` або `exclude()`. Використання Q є особливо корисним, коли потрібно динамічно будувати запити на основі різних умов.
+Кастомний менеджер виносить запити, специфічні для домену, з
+views/serializers/services у клас поруч із моделлю. Архітектурна паралель -
+**Repository pattern**: одне місце для всіх "як дістати X з БД". Замість
+розкиданих по коду `Product.objects.filter(price__gt=1000, available=True,
+deleted_at__isnull=True)` - єдиний `Product.objects.live_expensive()`, який і
+читається ясніше, і легше реюзається, і централізує зміну логіки.
+
+**`Manager.from_queryset()` - методи доступні і на менеджері, і у chain'і**
+
+Якщо метод визначений лише на менеджері, він **не** доступний після `.filter()` -
+`Product.objects.filter(...).expensive_products()` не спрацює. Канонічне рішення -
+визначити методи на QuerySet'і і згенерувати менеджер через `from_queryset`:
+
+```python
+class ProductQuerySet(models.QuerySet):
+    def expensive(self):
+        return self.filter(price__gt=1000)
+
+    def in_stock(self):
+        return self.filter(stock__gt=0)
+
+
+class Product(models.Model):
+    name = models.CharField(max_length=100)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    stock = models.IntegerField(default=0)
+
+    objects = ProductQuerySet.as_manager()    # Methods on both manager and chain
+
+
+Product.objects.expensive().in_stock()        # Chainable - same as filter()
+```
+
+**Кілька менеджерів на одній моделі**
+
+Можна додати додатковий менеджер з власною фільтрацією за замовчуванням
+(soft-delete, multi-tenant):
+
+```python
+class Product(models.Model):
+    name = models.CharField(max_length=100)
+    deleted_at = models.DateTimeField(null=True)
+
+    objects = models.Manager()                # Default - sees everything
+    live = ActiveManager()                    # get_queryset filters deleted_at__isnull=True
+```
+
+**Обмеження**
+
+- На абстрактних моделях (`Meta.abstract = True`) менеджер успадковується тільки
+  якщо явно перевизначений у дочірній моделі. Інакше дочірня модель отримає
+  стандартний `objects = Manager()`.
+- Якщо у моделі визначено хоча б один менеджер вручну, **дефолтний** `objects`
+  не створюється автоматично - доводиться додавати явно.
+- `_default_manager` - перший за оголошенням менеджер (або вказаний через
+  `Meta.default_manager_name`). Це впливає на related queries
+  (`book.author_set.all()` використовує default manager).
+
+
+
+### `Q`-об'єкти для складних умов
+
+*Summary*
+> **`Q`** - об'єкт, який інкапсулює умову фільтрації і дозволяє комбінувати
+> кілька умов через `|` (OR), `&` (AND), `~` (NOT). Призначений для запитів,
+> які не вкладаються в одне `filter(field=value, ...)` (де всі аргументи -
+> AND), а потребують OR-логіки або динамічної побудови.
 
 ```python
 from django.db.models import Q
 
 products = Product.objects.filter(
-	Q(price__gt=1000) | Q(name__icontains="Laptop")  # Get products with price greater than 1000 or name "Laptop"
+    Q(price__gt=1000) | Q(name__icontains="Laptop")  # OR
 )
 
 products = Product.objects.filter(
-	Q(price__lt=500) & ~Q(name__icontains="Phone")  # Combine conditions with exclusion
+    Q(price__lt=500) & ~Q(name__icontains="Phone")    # AND + NOT
 )
+```
+
+Особливо корисні для **динамічної побудови** запитів - коли набір умов невідомий
+заздалегідь:
+
+```python
+query = Q()
+if min_price is not None:
+    query &= Q(price__gte=min_price)
+if search:
+    query &= Q(name__icontains=search) | Q(description__icontains=search)
+
+products = Product.objects.filter(query)
 ```
 
 
@@ -458,6 +639,82 @@ for book in books:
 
 
 
+### `Subquery`, `OuterRef`, `annotate`
+
+*Summary*
+> `Subquery` + `OuterRef` дозволяють вбудувати корельований підзапит у звичайний
+> Django ORM-запит через `.annotate()`. Сценарій: для кожного рядка зовнішнього
+> QuerySet'у виконати залежний підзапит (last comment per post, max order amount
+> per user, кількість зв'язаних об'єктів зі складною умовою). Без них доводиться
+> писати raw SQL або робити N+1.
+
+**Призначення**
+
+`prefetch_related` тягне **всі** зв'язані рядки і робить join у Python. Якщо
+потрібен лише один похідний скаляр на рядок (наприклад, "останній коментар"
+або "сума замовлень") - тягнути всю колекцію марнотратно. Корельований підзапит
+обчислює це на стороні БД одним SQL'ом.
+
+**Канонічний приклад**
+
+Для кожного поста - заголовок останнього коментаря і кількість коментарів:
+
+```python
+from django.db.models import Subquery, OuterRef, Count
+
+latest_comment = Comment.objects.filter(
+    post=OuterRef('pk')
+).order_by('-created_at').values('text')[:1]   # Single-column, single-row
+
+posts = Post.objects.annotate(
+    last_comment=Subquery(latest_comment),
+    comment_count=Count('comments'),
+)
+
+for p in posts:
+    print(p.title, p.last_comment, p.comment_count)
+```
+
+Що тут важливо:
+
+- **`OuterRef('pk')`** - посилається на колонку зовнішнього запиту (`Post.pk`).
+  Резолвиться у момент компіляції в SQL, не одразу.
+- **`.values('text')[:1]`** - `Subquery` вимагає **одного рядка з однією колонкою**.
+  Без `.values(...)` SQL спробує повернути весь рядок - помилка.
+- **`Subquery(...)`-вираз** як значення `annotate`-поля стає `(SELECT ...)`
+  inline-вираз у фінальному SQL.
+
+**`Exists` для бінарних умов**
+
+Якщо треба лише факт існування - `Exists` дешевший за `Subquery`:
+
+```python
+from django.db.models import Exists, OuterRef
+
+has_unread = Notification.objects.filter(user=OuterRef('pk'), read=False)
+users = User.objects.annotate(has_unread=Exists(has_unread))
+```
+
+SQL: `SELECT ..., EXISTS(SELECT 1 FROM notification WHERE ...) AS has_unread FROM user`.
+БД може зупинити пошук на першому збігу.
+
+**Обмеження**
+
+- `Subquery` має повертати **одне** значення; для багаторядкового - агрегувати
+  (`Sum`, `Max`, `Count`) або обмежити `[:1]`.
+- На MySQL до 8.0.14 був баг з оптимізатором корельованих підзапитів - могло
+  призводити до full table scan. На сучасних версіях Postgres / MySQL / SQLite
+  оптимізатор справляється.
+- Якщо тип колонки `Subquery` не очевидний для Django - вказати явно
+  через `output_field=models.DateTimeField()`.
+
+*Links*
+
+- [Django docs: Subquery() expressions](https://docs.djangoproject.com/en/stable/ref/models/expressions/#subquery-expressions)
+- [Django docs: Exists() subqueries](https://docs.djangoproject.com/en/stable/ref/models/expressions/#exists-subqueries)
+
+
+
 ### Що робить `select_for_update`
 
 `select_for_update` є методом в Django ORM, який дозволяє заблокувати вибрані записи бази 
@@ -537,6 +794,16 @@ URL-адресу, Headers та будь-які надіслані дані (JSON
 	- коли сервер визначив, яка в'юха повинна обробити запит, вона виконується. В'юха отримує запит та допоміжні дані, які необхідні для виконання дії, наприклад, дані з форми, які ви ввели. Під час виконання в'юха може викликати додаткові Middleware, які допоможуть виконати завдання.
 - Генерація відповіді
 	- коли в'юха завершила виконання, сервер отримує відповідь. Це може бути HTML-сторінка, JSON-відповідь або будь-який інший тип відповіді, який сервер підтримує. Сервер відправляє цю відповідь назад до клієнта, який ініціював запит.
+
+**Onion-принцип у проходженні middleware**
+
+Порядок виконання middleware симетричний: request проходить ланцюг middleware
+зверху-вниз за списком `MIDDLEWARE` у `settings.py` (перший у списку - найзовнішній
+шар), потім потрапляє у view; response повертається крізь ті ж middleware
+у зворотному порядку - знизу-вгору. Модель аналогічна декоратору: код **перед**
+`response = self.get_response(request)` у `__call__` належить request-фазі,
+код **після** - response-фазі. Тому послідовність у `MIDDLEWARE` визначає не лише
+"що раніше відпрацює на вході", а й "що пізніше відпрацює на виході".
 
 ```
 ╔══════════════════╗   ╔══════════════════╗   ╔══════════════════╗   ╔══════════════════╗
@@ -618,11 +885,19 @@ MIDDLEWARE = [
 
 ### Основні Middleware
 
-- `AuthenticationMiddleware` - перевіряє, чи авторизований користувач, авторизує користувача. Додає до запиту поле `user`.
+- `SecurityMiddleware` - додає security-заголовки до відповіді: `Strict-Transport-Security` (HSTS) через `SECURE_HSTS_SECONDS`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`. Опційно робить редирект `HTTP → HTTPS` при `SECURE_SSL_REDIRECT = True`. Сам HTTPS-termination відбувається на рівні reverse proxy / web server (Nginx, ALB) - middleware лише примушує клієнта переключитися.
 - `SessionMiddleware` - дозволяє використовувати сесії, щоб зберігати інформацію між запитами. Він створює та зберігає сесійні файли та додає інформацію про сесію - додає до запиту об'єкт `session`.
+- `CommonMiddleware` - набір крос-функцій: редирект на URL з/без trailing slash згідно `APPEND_SLASH` і `PREPEND_WWW`, заборона запитів від User-Agent із `DISALLOWED_USER_AGENTS`, валідація `Host`-заголовка проти `ALLOWED_HOSTS` (з 1.10 виокремлено у `SecurityMiddleware` для частини перевірок).
 - `CsrfViewMiddleware` - перевіряє, що POST-запити відправлені з поточного домену. Додає CSRF-токени до форм та інших запитів POST, щоб запобігти атакам типу Cross-Site Request Forgery.
+- `AuthenticationMiddleware` - перевіряє, чи авторизований користувач, авторизує користувача. Додає до запиту поле `user`.
 - `MessageMiddleware` - дозволяє відображати повідомлення користувачам, наприклад, після успішного входу до системи. Передає користувачеві короткі повідомлення.
 - `GZipMiddleware` - стискає відповідь, щоб зменшити розмір відправленої даних та покращити швидкість відповіді.
+
+Порядок у списку `MIDDLEWARE` має значення (див. розділ
+[Request-Response lifecycle](#request-response-lifecycle), onion-принцип):
+`SecurityMiddleware` зазвичай ставлять першим - щоб security-перевірки відбувалися
+до решти обробки; `AuthenticationMiddleware` має йти **після** `SessionMiddleware`,
+бо залежить від `request.session`.
 
 
 

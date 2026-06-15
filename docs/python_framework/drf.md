@@ -262,3 +262,349 @@ class ProductViewSet(ModelViewSet):
 		# Custom action to set a price for a product
 		return Response({"message": f"Price updated for product {pk}"})
 ```
+
+
+
+### Django vs DRF
+
+*Summary*
+> Django - повноцінний веб-фреймворк (ORM, шаблони, форми, admin, auth, sessions,
+> middleware). DRF (`djangorestframework`) - стороння бібліотека-надбудова поверх
+> Django, спеціалізована для побудови REST API: серіалізатори, ViewSets, routers,
+> content negotiation, browsable API, throttling, pagination. Django без DRF
+> теж дозволяє писати API, але доводиться руками робити те, що DRF дає коробці.
+
+**Що дає Django сам по собі**
+
+- ORM (моделі, міграції, QuerySet'и);
+- Routing через `urls.py`;
+- View-функції / class-based views (`View`, `TemplateView`, `ListView`, ...);
+- Шаблони, форми (для server-rendered UI);
+- Admin-панель;
+- Auth-система (User model, permissions, groups);
+- Middleware-стек;
+- Sessions, messages;
+- Управління статичними і медіа-файлами.
+
+Для API можна писати без DRF: повертати `JsonResponse`, парсити `request.body`
+вручну, серіалізувати dict'и. Працює, але швидко стає boilerplate'ом.
+
+**Що додає DRF**
+
+- **Serializers** - двосторонню валідацію і перетворення між Python-об'єктом
+  (модель / dict) і JSON; з підтримкою nested-моделей, кастомних полів і
+  валідаторів. Аналог Marshmallow / Pydantic, інтегрований з ORM (`ModelSerializer`).
+- **APIView / GenericAPIView / ViewSets / Mixins** - готові шари абстракції
+  поверх `View` для CRUD над моделлю.
+- **Routers** (`DefaultRouter`, `SimpleRouter`) - генерують URL'и автоматично
+  з ViewSet'у.
+- **Authentication classes** - `TokenAuthentication`, `SessionAuthentication`,
+  `BasicAuthentication`; стороннє - JWT (`djangorestframework-simplejwt`),
+  OAuth2.
+- **Permissions** - декларативний контроль доступу
+  (`IsAuthenticated`, `IsAdminUser`, кастомні).
+- **Throttling** - rate limiting per-user / per-anon / per-IP.
+- **Pagination** - готові класи (`PageNumberPagination`, `LimitOffsetPagination`,
+  `CursorPagination`).
+- **Content negotiation** - відповідь у JSON / XML / browsable HTML залежно
+  від `Accept`-заголовка.
+- **Browsable API** - HTML-сторінка для перегляду/тестування ендпойнтів у браузері.
+- **Exception handlers** - DRF-формат помилок (`{"detail": "..."}`).
+
+**Встановлення**
+
+```bash
+pip install djangorestframework
+```
+
+```python
+# settings.py
+INSTALLED_APPS = [
+    ...
+    "rest_framework",
+]
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.TokenAuthentication"],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
+}
+```
+
+**Випадки, де DRF не потрібен**
+
+- Дрібний внутрішній сервіс з кількома ендпойнтами без serialization-логіки -
+  можна обійтися `JsonResponse`.
+- Сервіс, де важлива async-семантика з нуля - FastAPI / Starlette на власній
+  основі, без Django-overhead.
+
+Інакше для типового REST-сервісу на Django стек `Django + DRF` - індустріальний
+дефолт.
+
+*Links*
+
+- [Django REST Framework: Quickstart](https://www.django-rest-framework.org/tutorial/quickstart/)
+
+
+
+### Generic Views у DRF
+
+*Summary*
+> Generic Views - готові class-based views поверх `GenericAPIView`, кожен
+> відповідає за одну HTTP-операцію або їх вузьку комбінацію. Кожен generic view -
+> комбінація `GenericAPIView` + один або кілька mixin'ів з `rest_framework.mixins`.
+> Альтернатива ViewSet'ам, коли потрібен один-два endpoint'и, а не повний CRUD.
+
+**Базовий клас: `GenericAPIView`**
+
+`GenericAPIView` сам не обробляє HTTP-методи - лише дає атрибути і helper'и:
+
+- `queryset` - джерело даних;
+- `serializer_class` - який серіалізатор використати;
+- `lookup_field` (default `pk`) - за якою колонкою шукати об'єкт;
+- `pagination_class`, `filter_backends`, `permission_classes`,
+  `authentication_classes` - стандартний набір;
+- `get_queryset()`, `get_serializer()`, `get_object()` - перевизначувані хуки.
+
+**Готові generic views**
+
+| Клас | Метод(и) | Дія |
+| --- | --- | --- |
+| `ListAPIView` | GET (collection) | список об'єктів |
+| `CreateAPIView` | POST | створення |
+| `RetrieveAPIView` | GET (single) | один об'єкт |
+| `UpdateAPIView` | PUT / PATCH | оновлення |
+| `DestroyAPIView` | DELETE | видалення |
+| `ListCreateAPIView` | GET / POST | список + створення |
+| `RetrieveUpdateAPIView` | GET / PUT / PATCH | один + оновлення |
+| `RetrieveDestroyAPIView` | GET / DELETE | один + видалення |
+| `RetrieveUpdateDestroyAPIView` | GET / PUT / PATCH / DELETE | один + оновлення + видалення |
+
+```python
+from rest_framework import generics
+from myapp.models import Product
+from myapp.serializers import ProductSerializer
+
+
+class ProductList(generics.ListCreateAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+
+
+class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+```
+
+URL'и реєструються вручну:
+
+```python
+urlpatterns = [
+    path("products/", ProductList.as_view()),
+    path("products/<int:pk>/", ProductDetail.as_view()),
+]
+```
+
+**Generics vs ViewSets - як вибирати**
+
+| Сценарій | Інструмент |
+| --- | --- |
+| Один-два endpoint'и на ресурс, не весь CRUD | Generics |
+| Кастомна HTTP-семантика (наприклад, тільки POST для пошуку) | Generics або `APIView` |
+| Повний CRUD над моделлю з автогенерацією URL | `ModelViewSet` + `DefaultRouter` |
+| Потрібно явно контролювати, які операції доступні | Generics (composition over `ModelViewSet`) |
+| Кілька related-actions під одним ресурсом | ViewSet з `@action` |
+
+Принцип: **не давати клієнту операції, яких не передбачено**. `ModelViewSet`
+автоматично відкриває POST/PUT/PATCH/DELETE - якщо ресурс read-only, краще
+`ListAPIView` + `RetrieveAPIView`, або `ReadOnlyModelViewSet`.
+
+*Links*
+
+- [DRF docs: Generic views](https://www.django-rest-framework.org/api-guide/generic-views/)
+
+
+
+### Mixins у DRF
+
+*Summary*
+> `rest_framework.mixins` - п'ять класів, кожен реалізує одну CRUD-дію поверх
+> `GenericAPIView`. Generic views - готові комбінації цих mixin'ів. Власна
+> композиція mixin'ів потрібна, коли стандартні generics і ViewSets не дають
+> точно потрібного набору операцій.
+
+**П'ять основних mixin'ів**
+
+| Mixin | Метод | HTTP |
+| --- | --- | --- |
+| `CreateModelMixin` | `.create(request, *args, **kwargs)` | POST |
+| `ListModelMixin` | `.list(request, *args, **kwargs)` | GET (collection) |
+| `RetrieveModelMixin` | `.retrieve(request, *args, **kwargs)` | GET (single) |
+| `UpdateModelMixin` | `.update(...)`, `.partial_update(...)` | PUT, PATCH |
+| `DestroyModelMixin` | `.destroy(request, *args, **kwargs)` | DELETE |
+
+Кожен mixin покладається на `GenericAPIView` для `get_queryset()`,
+`get_serializer()`, `get_object()` - тому міксується **разом** з `GenericAPIView`
+(або `GenericViewSet`).
+
+**Реалізація generic view через mixin'и**
+
+`generics.ListCreateAPIView` під капотом - це:
+
+```python
+from rest_framework import mixins, generics
+
+class ListCreateAPIView(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    generics.GenericAPIView,
+):
+    def get(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return self.create(request, *args, **kwargs)
+```
+
+**Власна композиція**
+
+Сценарій: ресурс має `list`, `create`, кастомний action `archive` - але не
+`update`/`destroy`:
+
+```python
+from rest_framework import mixins, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+
+class OrderViewSet(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    queryset = Order.objects.all()
+    serializer_class = OrderSerializer
+
+    @action(detail=True, methods=["post"])
+    def archive(self, request, pk=None):
+        order = self.get_object()
+        order.archive()
+        return Response({"status": "archived"})
+```
+
+Тут немає `UpdateModelMixin` / `DestroyModelMixin` - відповідно PUT/PATCH/DELETE
+просто недоступні, без явного блокування на permission-рівні. Це чистіше за
+`ModelViewSet` + override методів для `405 Method Not Allowed`.
+
+*Links*
+
+- [DRF docs: Mixins](https://www.django-rest-framework.org/api-guide/generic-views/#mixins)
+
+
+
+### Документація OpenAPI: `drf-spectacular`, `drf-yasg`
+
+*Summary*
+> DRF із коробки генерує мінімальну OpenAPI-схему (`SchemaView`), але для
+> production-якісної документації використовують сторонні бібліотеки:
+> **`drf-spectacular`** (актуальна, OpenAPI 3.x, активно розробляється) або
+> **`drf-yasg`** (історично популярна, OpenAPI 2.0 / Swagger, режим maintenance).
+> На відміну від FastAPI, схема не генерується з сигнатур функцій - вона
+> будується з серіалізаторів + декораторів-підказок.
+
+**Призначення сторонньої бібліотеки**
+
+DRF знає типи через серіалізатори, але автоматично виведена схема часто
+неповна для нетривіальних випадків: динамічні поля, кастомні дії, кілька
+response-варіантів, polymorphic-серіалізатори, parameters з query-string.
+`drf-spectacular` і `drf-yasg` додають декоратори для уточнення цих місць.
+
+**`drf-spectacular` - рекомендований дефолт**
+
+```bash
+pip install drf-spectacular
+```
+
+```python
+# settings.py
+INSTALLED_APPS = [..., "drf_spectacular"]
+
+REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "My API",
+    "VERSION": "1.0.0",
+}
+```
+
+```python
+# urls.py
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
+
+urlpatterns = [
+    ...
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/schema/swagger/", SpectacularSwaggerView.as_view(url_name="schema")),
+    path("api/schema/redoc/", SpectacularRedocView.as_view(url_name="schema")),
+]
+```
+
+Кастомізація через декоратор `@extend_schema`:
+
+```python
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from rest_framework.decorators import api_view
+
+
+@extend_schema(
+    parameters=[OpenApiParameter(name="search", type=str, required=False)],
+    responses={200: ProductSerializer(many=True)},
+    description="Search products by partial name match.",
+)
+@api_view(["GET"])
+def search_products(request):
+    ...
+```
+
+**`drf-yasg` - історичний варіант**
+
+```python
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+
+@swagger_auto_schema(
+    method="get",
+    manual_parameters=[
+        openapi.Parameter("search", openapi.IN_QUERY, type=openapi.TYPE_STRING),
+    ],
+    responses={200: ProductSerializer(many=True)},
+)
+@api_view(["GET"])
+def search_products(request):
+    ...
+```
+
+Працює, але обмежений OpenAPI 2.0, не підтримує всі сучасні фічі (oneOf, discriminator,
+nullable у деяких контекстах). Для нових проектів - `drf-spectacular`.
+
+**Порівняння з FastAPI**
+
+FastAPI генерує OpenAPI-схему **автоматично** з сигнатур функцій і Pydantic-моделей -
+без декораторів. DRF не має такого механізму, бо контракт endpoint'у визначений
+не сигнатурою, а серіалізатором + view-класом + permission'ами; інспектувати все
+це автоматично без втрат точності складно. Звідси декларативний підхід через
+`@extend_schema`.
+
+*Links*
+
+- [drf-spectacular docs](https://drf-spectacular.readthedocs.io/)
+- [drf-yasg docs](https://drf-yasg.readthedocs.io/)
+- [OpenAPI Specification](https://spec.openapis.org/oas/latest.html)
+
