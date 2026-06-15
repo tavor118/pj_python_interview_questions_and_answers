@@ -391,21 +391,119 @@ print(vars())  # Without arguments, returns the dictionary of the current local 
 
 
 
-### В чому різниця між `copy()` та `deepcopy()`?
+### Три типи копіювання: assignment, shallow copy, deep copy
 
-Глибока копія `deepcopy()` створює нову окрему копію об'єкта або списку 
-зі своєю унікальною адресою пам'яті. 
-Це означає, що будь-які зміни, внесені у нову копію об'єкта або списку, не будуть 
-відображатися у вихідному. 
-Цей процес відбувається так: спочатку створюється новий список або об'єкт, 
-а потім рекурсивно копіюються всі елементи з вихідного в новий.
+*Summary*
+> Python розрізняє три рівні "копіювання": **присвоєння** (`b = a`) - новий
+> ідентифікатор на той самий об'єкт без копіювання; **поверхнева копія**
+> (`copy.copy(a)` або `a.copy()`) - новий контейнер з тими ж посиланнями на
+> вкладені елементи; **глибока копія** (`copy.deepcopy(a)`) - рекурсивне
+> копіювання всього дерева. Вибір залежить від вкладеності об'єкта і
+> очікуваної ізоляції.
 
-Поверхнева копія `copy()` також створює окремий новий об'єкт або список, але замість 
-копіювання дочірніх елементів у новий об'єкт вона просто копіює посилання 
-на їх адреси пам'яті. 
-Тому, якщо вносяться зміни до вихідного об'єкта, вони будуть відображені 
-у скопійованому об'єкті, і навпаки.
+**1. Присвоєння (`b = a`) - той самий об'єкт**
+
+Жодного копіювання не відбувається. Створюється нове ім'я, яке посилається на
+вже існуючий об'єкт. `id(a) == id(b)`, `a is b` повертає `True`. Зміна через
+одне ім'я видима через інше:
+
+```python
+import copy
+
+a = [1, 2, [3, 4]]
+b = a                # No copy - same object
+b.append(5)
+print(a)             # [1, 2, [3, 4], 5] - a is mutated too
+print(a is b)        # True
+```
+
+**2. Поверхнева копія (`copy.copy`, `list.copy`, `dict.copy`, `[:]`)**
+
+Створюється новий контейнер. Вкладені об'єкти **не** копіюються - копіюються
+посилання на них. Верхній рівень ізольований, вкладені - спільні.
+
+```python
+a = [1, 2, [3, 4]]
+b = copy.copy(a)     # Shallow copy
+# Equivalent: b = list(a), b = a[:], b = a.copy()
+
+b.append(5)
+print(a)             # [1, 2, [3, 4]] - top level NOT mutated
+print(b)             # [1, 2, [3, 4], 5]
+
+b[2].append(99)
+print(a)             # [1, 2, [3, 4, 99]] - nested list IS mutated
+print(a[2] is b[2])  # True - same nested object
+```
+
+Поширені способи зробити поверхневу копію:
+- `copy.copy(x)` - універсальний;
+- `list(x)`, `dict(x)`, `set(x)` - через конструктор;
+- `x.copy()` - метод (списки, словники, множини, з 3.9+);
+- `x[:]` - slice-копія для послідовностей.
+
+**3. Глибока копія (`copy.deepcopy`)**
+
+Рекурсивно копіює об'єкт і всі вкладені. Жодних спільних посилань між оригіналом
+і копією не лишається:
+
+```python
+a = [1, 2, [3, 4]]
+b = copy.deepcopy(a)
+b[2].append(99)
+print(a)             # [1, 2, [3, 4]] - original unchanged
+print(b)             # [1, 2, [3, 4, 99]]
+print(a[2] is b[2])  # False - distinct nested objects
+```
+
+**Як обробляються циклічні посилання**
+
+`deepcopy` тримає словник `memo` зі вже скопійованих об'єктів. Якщо натикається
+на цикл - повертає вже скопійований варіант, уникаючи безкінечної рекурсії:
+
+```python
+a = [1]
+a.append(a)          # Cycle: a contains itself
+b = copy.deepcopy(a) # No StackOverflow - memo breaks the cycle
+print(b[1] is b)     # True - cycle preserved in copy
+```
+
+**Кастомізація: `__copy__` і `__deepcopy__`**
+
+Клас може контролювати поведінку копіювання. `deepcopy` приймає `memo`:
+
+```python
+class Node:
+    def __init__(self, value, children=None):
+        self.value = value
+        self.children = children or []
+
+    def __copy__(self):
+        return Node(self.value, self.children)   # Shallow: shares children list
+
+    def __deepcopy__(self, memo):
+        return Node(copy.deepcopy(self.value, memo),
+                    copy.deepcopy(self.children, memo))
+```
+
+**Що вибирати**
+
+| Сценарій | Інструмент |
+| --- | --- |
+| Передати посилання | `b = a` (нема копії) |
+| Контейнер без вкладених mutable | `copy.copy(a)` / `a.copy()` / `a[:]` |
+| Дерево, вкладені списки/словники | `copy.deepcopy(a)` |
+| Контрольоване копіювання класу | `__copy__` / `__deepcopy__` |
+
+**Підводні камені**
+
+- `dict.copy()` копіює тільки верхній рівень. Якщо значення - вкладений словник
+  чи список, його зміна видима в обох.
+- `deepcopy` дорогий: O(n) по всіх елементах + alloc на кожен. Для великих
+  структур краще зробити immutable-копію (`tuple`, `frozenset`, `MappingProxyType`).
+- `deepcopy` не копіює відкриті файлові дескриптори, сокети, threads - спробує
+  через pickle-протокол, який може кинути виняток для несеріалізованих об'єктів.
 
 *Links*
 
-- [Deep vs Shallow Copies in Python](https://stackabuse.com/deep-vs-shallow-copies-in-python/)
+- [Python docs: copy - Shallow and deep copy operations](https://docs.python.org/3/library/copy.html)

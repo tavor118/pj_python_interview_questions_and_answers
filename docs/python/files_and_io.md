@@ -248,3 +248,222 @@ async def read_file(path):
 призначенням відповідним функціям модуля `json`, але працюють з байтовими рядками 
 та бінарними файлами.
 
+
+
+### Перелік файлів у директорії
+
+*Summary*
+> Stdlib пропонує чотири основні інструменти: `os.listdir` (плоский список імен),
+> `os.scandir` (метадані без додаткових `stat`-викликів), `pathlib.Path.iterdir` /
+> `glob` / `rglob` (об'єктний API з шаблонами), `os.walk` (рекурсивний обхід дерева).
+> Вибір залежить від того, чи потрібні шаблони, рекурсія, метадані файлів.
+
+**`os.listdir(path)` - плоский список імен**
+
+```python
+import os
+
+for name in os.listdir("/var/log"):
+    print(name)  # 'syslog', 'auth.log', ... - just names, no path
+```
+
+Найдешевший варіант: один `getdents`-syscall. Повертає лише імена, без `stat`. Не
+розрізняє файли і директорії - для типу треба окремий виклик `os.path.isfile()`,
+який робить `stat`. Не сортує.
+
+**`os.scandir(path)` - імена + метадані за один прохід**
+
+```python
+import os
+
+with os.scandir("/var/log") as it:
+    for entry in it:
+        if entry.is_file():           # No extra stat - taken from getdents
+            print(entry.name, entry.stat().st_size)
+```
+
+`scandir` дешевше за `listdir` + ручне `os.path.isfile`/`os.path.isdir`, бо тип
+файлу зчитується з `d_type` в `getdents` без окремих `stat`-викликів. Це
+рекомендований варіант для великих директорій. Повертає ітератор - сам
+звільняє ресурси через context manager.
+
+**`pathlib.Path.iterdir()` - об'єктний API**
+
+```python
+from pathlib import Path
+
+for p in Path("/var/log").iterdir():
+    if p.is_file():
+        print(p.name, p.stat().st_size)
+```
+
+Той самий рівень абстракції, що і `os.scandir`, але повертає `Path`-об'єкти з
+зручними методами (`.suffix`, `.stem`, `.with_suffix()`, `.read_text()`).
+Внутрішньо реалізовано через `scandir`.
+
+**Glob-шаблони: `.glob()` і `.rglob()`**
+
+```python
+from pathlib import Path
+
+base = Path("./project")
+for p in base.glob("*.py"):           # Top-level only
+    print(p)
+for p in base.rglob("*.py"):          # Recursive, all levels
+    print(p)
+for p in base.glob("src/**/*.py"):    # ** = arbitrary depth
+    print(p)
+```
+
+`glob` підтримує `*`, `?`, `[...]`, `**` (рекурсія). Не повертає приховані файли
+(з імен на `.`) - за замовчуванням.
+
+**`os.walk(top)` - рекурсивний обхід дерева**
+
+```python
+import os
+
+for dirpath, dirnames, filenames in os.walk("./project"):
+    for filename in filenames:
+        full_path = os.path.join(dirpath, filename)
+        print(full_path)
+    # Modify dirnames in-place to skip a subtree:
+    dirnames[:] = [d for d in dirnames if d not in {".git", "__pycache__"}]
+```
+
+Виконує DFS-обхід дерева. На кожному рівні - `(dirpath, dirnames, filenames)`.
+Модифікація `dirnames` на місці впливає на подальший обхід - канонічний спосіб
+пропускати піддерева (наприклад, `.git`, `node_modules`). Із Python 3.12 є
+`os.walk(top, ...)`-аналог `pathlib.Path.walk()`.
+
+**Що вибирати**
+
+| Сценарій | Інструмент |
+| --- | --- |
+| Просто список імен у директорії | `os.listdir` |
+| Список з типом файлу або розміром | `os.scandir` або `Path.iterdir` |
+| Шаблон (`*.py`, `*.log`) | `Path.glob` |
+| Рекурсивний пошук за шаблоном | `Path.rglob` або `Path.glob("**/...")` |
+| Повний обхід дерева з контролем | `os.walk` (можна пропускати піддерева) |
+
+**Чого не робити**
+
+- Не використовувати `os.listdir` + `os.path.join` + `os.path.isfile` у циклі для
+  великих директорій - кожен `isfile` робить окремий `stat`-syscall. `os.scandir`
+  робить це за один прохід.
+- Не покладатися на порядок: жоден з цих API не сортує. Якщо порядок потрібен -
+  `sorted(...)` явно.
+
+*Links*
+
+- [Python docs: os.scandir](https://docs.python.org/3/library/os.html#os.scandir)
+- [Python docs: pathlib](https://docs.python.org/3/library/pathlib.html)
+- [PEP 471 - os.scandir() function](https://peps.python.org/pep-0471/) - мотивація для scandir vs listdir
+
+
+
+### Як обробити кілька файлів одночасно
+
+*Summary*
+> Для роботи з невідомою кількістю файлових об'єктів одночасно - `contextlib.ExitStack`:
+> реєструє довільну кількість context manager'ів і коректно закриває всі при виході,
+> навіть при винятку. Для **паралельного** оброблення - `concurrent.futures` із
+> `ThreadPoolExecutor` (I/O-bound) або `ProcessPoolExecutor` (CPU-bound).
+
+**`ExitStack` - багато файлів в одному `with`**
+
+Вкладені `with`-блоки погано масштабуються, якщо кількість файлів невідома заздалегідь:
+
+```python
+# Doesn't scale: number of files known only at runtime
+with open(paths[0]) as f1:
+    with open(paths[1]) as f2:
+        with open(paths[2]) as f3:
+            ...
+```
+
+`ExitStack` розв'язує це динамічно:
+
+```python
+from contextlib import ExitStack
+
+def merge_files(paths, output):
+    with ExitStack() as stack:
+        files = [stack.enter_context(open(p)) for p in paths]
+        with open(output, "w") as out:
+            for f in files:
+                out.write(f.read())
+    # All files closed here - even if open() raised mid-loop
+```
+
+`enter_context()` додає об'єкт у стек; при виході з `with ExitStack()` всі зайдені
+менеджери закриваються у зворотному порядку. Якщо `open()` десь падає, уже
+відкриті файли коректно закриваються.
+
+**Послідовна обробка**
+
+Якщо обробка кожного файлу незалежна і дешева - простий цикл:
+
+```python
+from pathlib import Path
+
+for path in Path("./logs").glob("*.log"):
+    with open(path) as f:
+        process(f.read())
+```
+
+**Паралельна обробка: I/O-bound**
+
+Парсинг JSON, читання з мережевого диска, виклик API на кожен файл - I/O-bound.
+Тут `ThreadPoolExecutor` дає виграш попри GIL: блокуючі syscall'и виконуються
+паралельно, оскільки під час I/O GIL звільняється.
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+def process_file(path):
+    with open(path) as f:
+        return parse(f.read())
+
+paths = list(Path("./data").glob("*.json"))
+with ThreadPoolExecutor(max_workers=16) as pool:
+    results = list(pool.map(process_file, paths))
+```
+
+**Паралельна обробка: CPU-bound**
+
+Якщо обробка - тяжка (хеш великого файлу, парсинг XML, image processing) -
+`ProcessPoolExecutor` обходить GIL через окремі процеси.
+
+```python
+from concurrent.futures import ProcessPoolExecutor
+
+with ProcessPoolExecutor() as pool:
+    results = list(pool.map(hash_file, paths))
+```
+
+Деталі GIL і вибору пула - у [`gil_threads_processes.md`](gil_threads_processes.md).
+
+**Async для багатьох файлів**
+
+`asyncio` не дає реального паралелізму на локальному дисковому I/O - syscall
+`read()` блокує event loop. Якщо потрібна асинхронна обробка з I/O в мережу
+(вивантажити файли в S3, відправити в API) - `aiofiles` для читання + native
+async-клієнти для I/O. Для чисто локального диска перевага мінімальна.
+
+**Чого не робити**
+
+- Не відкривати багато файлів без `with`/`ExitStack`. Якщо посередині падає
+  виняток, файли не закриваються до GC. На Windows це блокує перейменування /
+  видалення.
+- Не запускати `ProcessPoolExecutor` для дрібних задач - serialization-оверхед
+  з'їдає виграш від паралелізму.
+- Не плутати `ThreadPoolExecutor` з паралельним CPU: за GIL Python-код виконується
+  по черзі; виграш є лише на I/O-bound коді.
+
+*Links*
+
+- [Python docs: contextlib.ExitStack](https://docs.python.org/3/library/contextlib.html#contextlib.ExitStack)
+- [Python docs: concurrent.futures](https://docs.python.org/3/library/concurrent.futures.html)
+

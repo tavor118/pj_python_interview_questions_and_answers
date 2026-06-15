@@ -37,6 +37,43 @@ print(factorial(5))  # Output: 120
 Також відстеження рекурсивного коду може бути складнішим через велику кількість викликів, 
 особливо для глибоких рекурсій.
 
+**CPython-специфіка: ліміт глибини**
+
+CPython має software-ліміт глибини рекурсії за замовчуванням
+`sys.getrecursionlimit() == 1000`. При перевищенні - `RecursionError: maximum
+recursion depth exceeded`. Ліміт - захист від нескінченної рекурсії, який
+зупиняє Python до того, як впаде C-стек процесу (зазвичай 8 MB на Linux/macOS).
+
+```python
+import sys
+
+sys.getrecursionlimit()       # 1000 (default)
+sys.setrecursionlimit(10000)  # Raise the cap
+```
+
+Підняття ліміту сильно вище 1000 без розуміння наслідків веде до **segmentation
+fault** замість контрольованого `RecursionError` - C-стек переповнюється і
+процес падає без можливості перехопити сигнал:
+
+```python
+import sys
+sys.setrecursionlimit(1_000_000)
+def f(n): f(n + 1)
+f(0)  # Eventually: SIGSEGV - not catchable in Python
+```
+
+**Чому CPython не оптимізує хвостову рекурсію**
+
+Хоча хвостова рекурсія (див. наступний розділ) теоретично могла б працювати в
+одному кадрі без приросту стеку, Гвідо ван Россум свідомо відкинув TCO в CPython:
+
+- traceback стає нечитабельним - проміжні виклики зникають;
+- `f.__name__` у внутрішніх кадрах стає невідповідним при виключенні;
+- Python - не функціональна мова, рекурсія не є основною формою циклів.
+
+[Tail Recursion Elimination (van Rossum, 2009)](https://neopythonic.blogspot.com/2009/04/tail-recursion-elimination.html) -
+оригінальна позиція. PyPy і Stackless Python зробили інші вибори.
+
 
 Можливі способи оптимізації рекурсії
 

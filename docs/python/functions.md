@@ -106,6 +106,86 @@ foo.__defaults__
 
 
 
+### Як повернути кілька значень з функції
+
+*Summary*
+> Технічно функція завжди повертає **один** об'єкт. Кілька значень "повертаються"
+> як кортеж: `return a, b, c` - синтаксичний цукор для `return (a, b, c)`. На
+> місці виклику використовується tuple-unpacking: `x, y, z = func()`. Для двох-трьох
+> значень - звичайний кортеж; для більших або іменованих наборів - `NamedTuple`
+> або `dataclass`.
+
+**Кортеж + unpacking**
+
+```python
+def min_max(items):
+    return min(items), max(items)   # Implicit tuple
+
+lo, hi = min_max([3, 1, 4, 1, 5, 9, 2, 6])
+# lo = 1, hi = 9
+```
+
+Дужки навколо `return min(items), max(items)` опціональні: компілятор бачить кому
+і збирає кортеж автоматично. Це той самий механізм, що й у `a, b = 1, 2`.
+
+**Ігнорування непотрібних значень**
+
+Якщо частина повертається, але не потрібна, прийнятна конвенція - `_`:
+
+```python
+_, hi = min_max([3, 1, 4])      # Only need the max
+*_, last = (1, 2, 3, 4)         # Star-unpacking for "everything but last"
+```
+
+**Іменовані результати: `NamedTuple` або `dataclass`**
+
+Як тільки повертається 3+ значень, читабельність на місці виклику падає -
+що означає `result[2]`? Тоді кортеж замінюють на іменовану структуру:
+
+```python
+from typing import NamedTuple
+
+class Statistics(NamedTuple):
+    mean: float
+    median: float
+    stdev: float
+
+def compute_stats(items: list[float]) -> Statistics:
+    ...
+    return Statistics(mean=m, median=md, stdev=sd)
+
+stats = compute_stats(data)
+print(stats.mean, stats.stdev)     # Self-documenting access
+mean, _, _ = stats                  # Still unpacks like a tuple
+```
+
+`NamedTuple` - незмінний, легкий, indexable і unpackable одночасно. `@dataclass`
+(див. розділ у [`class_and_object.md`](class_and_object.md)) - коли потрібна
+мутабельність або кастомні методи.
+
+**Словник для динамічного набору**
+
+Якщо набір полів варіюється або частина може бути відсутньою:
+
+```python
+def fetch_user(uid: int) -> dict:
+    return {"id": uid, "name": "...", "email": "..."}
+```
+
+Для public-API краще `TypedDict` для типобезпеки на статичному аналізі.
+
+**Чого не робити**
+
+- **`return a; return b`** - другий `return` ніколи не виконається. Якщо потрібно
+  повертати один із двох - умовний оператор: `return a if cond else b`.
+- **Глобальні змінні як "додаткові повернення"** - функція стає прихованим
+  side-effect-кодом, тестувати і композувати її складно.
+- **Кортежі з 5+ елементів** без іменування - заміна на `NamedTuple` /
+  `dataclass` майже завжди виграш у читабельності і гнучкості (новий field
+  не ламає позиційні розпаковки на сайтах виклику).
+
+
+
 ### Чи можна оголошувати функцію всередині іншої функції. Де вона буде видима
 
 Так, можна. Така функція буде видимою лише всередині першої функції.
@@ -287,3 +367,83 @@ def make_counter():
 
 Для зміни глобальної змінної - аналогічно, але `global` замість `nonlocal`. Якщо
 замикання лише **читає** змінну (не присвоює), ніяких ключових слів не потрібно.
+
+
+
+### Чиста функція (pure function)
+
+*Summary*
+> **Чиста функція** - функція, яка задовольняє дві умови: (1) **детермінованість** -
+> однакові вхідні дані завжди дають однаковий результат; (2) **відсутність
+> побічних ефектів** - не змінює стан поза собою (глобальні змінні, mutable-аргументи,
+> файли, БД, мережа, time, random). Виклик можна замінити на результат без
+> зміни поведінки програми (referential transparency).
+
+**Приклади**
+
+Чиста:
+
+```python
+def add(a, b):
+    return a + b              # Deterministic, no side effects
+```
+
+Не чисті - кожна порушує одну з умов:
+
+```python
+counter = 0
+
+def bump():
+    global counter
+    counter += 1              # Side effect: mutates global
+    return counter
+
+def now():
+    return datetime.now()     # Non-deterministic: depends on system time
+
+def append_log(item, log=[]):
+    log.append(item)          # Mutates argument (and shared default)
+    return log
+
+def fetch_user(uid):
+    return db.query(uid)      # I/O - non-deterministic, side-effect of DB read
+```
+
+**Чому це важливо**
+
+- **Тестування**: пряма перевірка `assert add(2, 3) == 5` без mock, fixture,
+  cleanup. Не потрібно ізолювати глобальний стан між тестами.
+- **Мемоізація**: `functools.cache` коректний тільки для чистих функцій. Для
+  не чистих кеш стає bug-ом - `now()` повертатиме перший виклик завжди.
+- **Паралелізм**: чисті функції тривіально розпаралелюються - ніяких race
+  conditions, тому що нема спільного стану.
+- **Композиція**: чисті функції безпечно комбінувати через `f(g(x))` -
+  результат не залежить від порядку допоміжних операцій.
+- **Reasoning**: код стає локальним; можна зрозуміти функцію за її сигнатурою
+  без читання того, що навколо.
+
+**Прагматичний компроміс**
+
+100% чиста програма не може робити нічого корисного - їй ніколи не побачити
+введення користувача чи записати в БД. На практиці:
+
+- ядро бізнес-логіки тримається чистим - функції обчислюють, не торкаються I/O;
+- I/O-операції (БД, мережа, файли, час) виштовхуються на межі програми -
+  composition root, controller, adapter;
+- mutability дозволена локально в межах функції (накопичувач у циклі), але не
+  виходить за її межі.
+
+Цей патерн відомий як **functional core, imperative shell** ([Gary Bernhardt,
+"Boundaries", 2012](https://www.destroyallsoftware.com/talks/boundaries)).
+
+**Зв'язок з ФП і референційною прозорістю**
+
+В чисто-функціональних мовах (Haskell, Elm) чистота - властивість типу: побічні
+ефекти явно позначені монадами (`IO`). У Python чистота - конвенція, дотримання
+якої залежить від дисципліни команди. Детальніше про ФП-підхід - у
+[`functional_programming.md`](functional_programming.md).
+
+*Links*
+
+- [Gary Bernhardt: Boundaries (PyCon 2013)](https://www.destroyallsoftware.com/talks/boundaries) - functional core, imperative shell
+- [Wikipedia: Pure function](https://en.wikipedia.org/wiki/Pure_function)

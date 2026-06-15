@@ -272,6 +272,93 @@ error_msg = ''.join(traceback.format_exception(exc_type, <name>, <name>.__traceb
 
 
 
+### Виключення vs помилки компіляції
+
+*Summary*
+> Python виконується у дві фази: спочатку джерельний код компілюється у байткод,
+> потім інтерпретатор виконує байткод. Помилки на першій фазі - **`SyntaxError`** і
+> похідні (`IndentationError`, `TabError`) - виникають до старту програми, ловити
+> їх у `try/except` у тому ж файлі неможливо. Виключення runtime-фази
+> (`ZeroDivisionError`, `KeyError`, `TypeError`, ...) виникають у процесі виконання
+> і обробляються `try/except`.
+
+**Дві фази виконання Python**
+
+```
+source.py  →  [compile to bytecode]  →  source.pyc  →  [execute]  →  result
+                       ↑                                    ↑
+               SyntaxError here                  runtime exceptions here
+               (cannot be caught                 (can be caught
+                in same file)                     in try/except)
+```
+
+Етап компіляції в Python робиться інтерпретатором при запуску (або імпорті) і
+кешується у `__pycache__/*.pyc`. На цьому етапі парсер перевіряє синтаксис; якщо
+файл не парситься - інтерпретатор не починає виконувати **жодного** рядка з
+нього, тому `try` навколо некоректного коду в тому ж файлі не спрацює:
+
+```python
+# This try doesn't help - SyntaxError happens at parse time,
+# before any line of the file runs:
+try:
+    x = 1 +
+except SyntaxError:
+    print("caught")
+```
+
+**Коли `SyntaxError` можна обробити**
+
+Випадки, коли парсинг виконується **під час runtime** і `SyntaxError` стає
+звичайним виключенням:
+
+- імпорт модуля з помилкою синтаксису: `import broken_module`;
+- виклик `eval(...)` чи `exec(...)` з рядком джерельного коду;
+- компіляція через `compile(source, ...)`.
+
+```python
+try:
+    exec("x = 1 +")               # Parsed at runtime
+except SyntaxError as e:
+    print(f"caught: {e}")          # caught: invalid syntax
+```
+
+**Чи має Python "компіляцію"?**
+
+Часто плутанина: "Python - інтерпретований, у нього немає компіляції". Точніше:
+Python **компілює** вихідний код у байткод (`.pyc`-файли в `__pycache__`),
+але без окремого кроку білду, який є у C/Java. Це не машинний код, а інструкції
+для віртуальної машини CPython. `SyntaxError` - результат саме цієї компіляції.
+
+```python
+import dis
+
+def f(x):
+    return x + 1
+
+dis.dis(f)
+#   2           0 RESUME                   0
+#   3           2 LOAD_FAST                0 (x)
+#               4 LOAD_CONST               1 (1)
+#               6 BINARY_OP                0 (+)
+#               8 RETURN_VALUE
+```
+
+**Споріднені compile-time-помилки**
+
+- `IndentationError` - підклас `SyntaxError`, специфічний для неправильних відступів.
+- `TabError` - підклас `IndentationError`, виникає при змішуванні табів і пробілів.
+- `NameError` за використання змінної до присвоєння - це **runtime**-помилка, не
+  compile-time. Компілятор бачить ім'я, але не перевіряє, чи воно ініціалізоване
+  (Python - динамічна мова).
+
+*Links*
+
+- [Python docs: SyntaxError](https://docs.python.org/3/library/exceptions.html#SyntaxError)
+- [Python docs: compile()](https://docs.python.org/3/library/functions.html#compile)
+- [Python docs: dis - bytecode disassembler](https://docs.python.org/3/library/dis.html)
+
+
+
 ### В яких випадках можна обробити `SyntaxError`
 
 Помилка синтаксису виникає, коли синтаксичний аналізатор Python зіштовхується 
@@ -318,3 +405,110 @@ category (за замовчуванням - UserWarning) - клас попере
 вміст стеку викликів (корисно, наприклад, для функцій-обгорток для виведення попереджень,
 де слід задати stacklevel=2, щоб попередження стосувалося місця виклику даної функції, 
 а не самої функції).
+
+
+
+### Логування виключень
+
+*Summary*
+> Канонічний інструмент - `logger.exception(msg)`: логує повідомлення з рівнем
+> `ERROR` і автоматично долучає traceback з поточного `sys.exc_info()`. Працює
+> лише всередині `except`-блоку. Поза ним - `logger.error(msg, exc_info=True)`
+> або `logger.error(msg, exc_info=exc)`. Використання `print(e)` або
+> `print(traceback.format_exc())` припустимо лише в одноразових скриптах -
+> у продакшен-коді трасування йде через `logging`.
+
+**`logger.exception()` - основний інструмент**
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+def process(payload):
+    try:
+        result = parse(payload)
+    except ValueError:
+        logger.exception("Failed to parse payload id=%s", payload.id)
+        raise   # Or return a default, depending on contract
+```
+
+Що це робить:
+- виставляє рівень `ERROR`;
+- додає `exc_info` з поточного активного виключення - traceback виводиться у
+  лог-повідомленні;
+- не приховує помилку - `raise` без аргументів пере-кидає поточний виняток зі
+  збереженим traceback.
+
+**Поза `except`-блоком**
+
+`logger.exception()` за межами `except` спрацює, але запише `NoneType: None`
+замість traceback. Якщо потрібно залогувати виключення, отримане як значення:
+
+```python
+def report_error(exc: Exception):
+    logger.error("Background task failed", exc_info=exc)
+```
+
+`exc_info=exc` (передається сам об'єкт виключення, не `True`) - валідно з
+Python 3.5.
+
+**Конфігурація форматера для повного контексту**
+
+За замовчуванням `logging` пише лише повідомлення. Для production-якісних логів
+потрібен форматер з timestamp, рівнем, модулем:
+
+```python
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s:%(lineno)d] %(message)s",
+)
+```
+
+Або через `logging.config.dictConfig({...})` - для повного контролю над
+handler'ами, форматерами, фільтрами.
+
+**Структуроване логування**
+
+У сервісах із централізованим збором логів (ELK, Loki, Datadog) використовують
+`structlog` або `python-json-logger` - кожне повідомлення стає JSON-об'єктом з
+полями `level`, `message`, `exception`, `request_id`, `user_id`. Це дозволяє
+шукати/агрегувати помилки за полями замість regex по тексту.
+
+```python
+import structlog
+
+logger = structlog.get_logger()
+
+try:
+    process(payload)
+except ValueError:
+    logger.exception("parse_failed", payload_id=payload.id, kind="ValueError")
+```
+
+**Типові помилки**
+
+- **`logger.error(str(e))`** - друкує лише текст виключення, без traceback. У
+  розслідуванні незрозуміло, де помилка виникла. Використовувати
+  `logger.exception()` або `logger.error(..., exc_info=True)`.
+- **`except Exception: pass`** з умовним логуванням `print(e)` - тиха втрата
+  помилок. У продакшені такий код "успішно" продовжує роботу зі зламаним станом.
+- **`except Exception: logger.exception(...)` без `raise`** - залежить від
+  контракту. Якщо функція має повертати результат, а виняток замовчується -
+  виклик отримає `None` без сигналу про проблему. Краще або `raise`, або
+  явно повернути sentinel.
+- **`logger.error("err: " + str(e))`** замість format-параметрів - `logging`
+  format-аргументи інтерполюються ліниво, лише якщо рівень увімкнено.
+  `logger.error("err: %s", e)` - правильний патерн.
+
+**Sentry, Rollbar та інші trackers**
+
+Для production-сервісів виключення також відправляють у систему-трекер (Sentry,
+Rollbar). Інтеграція зазвичай через `logging.Handler` або middleware: будь-який
+`logger.exception()` автоматично створює event у Sentry.
+
+*Links*
+
+- [Python docs: logging.Logger.exception](https://docs.python.org/3/library/logging.html#logging.Logger.exception)
+- [Python docs: logging cookbook](https://docs.python.org/3/howto/logging-cookbook.html)
+- [structlog documentation](https://www.structlog.org/)

@@ -299,6 +299,93 @@ result = not tuple2  # True
 
 
 
+### Комплексні числа (`complex`)
+
+*Summary*
+> Комплексне число - число виду `a + bj`, де `a` (real) і `b` (imaginary) -
+> дійсні числа, `j` - уявна одиниця (`j**2 == -1`). Python має вбудований
+> тип `complex`, літерал з суфіксом `j`/`J`. Використовуються в обробці сигналів
+> (FFT), електротехніці (фазори змінного струму), фізиці (квантова механіка),
+> комп'ютерній графіці (фрактали Мандельброта), теорії керування.
+
+**Синтаксис і базові операції**
+
+```python
+z = 2 + 3j               # Literal: imaginary part has j suffix
+z = complex(2, 3)        # Constructor: same as above
+z = complex("2+3j")      # From string
+
+z.real                   # 2.0  (always float)
+z.imag                   # 3.0
+z.conjugate()            # (2-3j) - flips sign of imaginary part
+abs(z)                   # 3.6055... = sqrt(4 + 9), magnitude (modulus)
+```
+
+Арифметичні операції визначені на типі: `+`, `-`, `*`, `/`, `**`. Ділення повертає
+`complex` навіть для дійсних операндів:
+
+```python
+(1 + 2j) + (3 - 1j)      # (4+1j)
+(2 + 3j) * (1 - 1j)      # (5+1j)
+(1 + 1j) ** 2            # 2j
+```
+
+**Модуль `cmath`**
+
+Для математичних функцій (логарифм, експонента, тригонометрія) над комплексними
+числами - модуль `cmath`. Стандартний `math` приймає тільки дійсні:
+
+```python
+import cmath
+
+cmath.sqrt(-1)           # 1j
+cmath.exp(1j * cmath.pi) # ~(-1+0j) - euler identity
+cmath.phase(1 + 1j)      # 0.7853... = pi/4, argument in radians
+cmath.polar(1 + 1j)      # (sqrt(2), pi/4) - magnitude + phase
+cmath.rect(1, cmath.pi/2)# (~0+1j) - back to rectangular form
+```
+
+**Де застосовуються**
+
+- **FFT і обробка сигналів**: `numpy.fft.fft` повертає масив complex-чисел.
+  Кожне з них кодує амплітуду (`abs`) і фазу (`cmath.phase`) гармоніки.
+- **Електротехніка**: змінний струм через фазор - `V = V_max * cmath.exp(1j*phase)`.
+  Імпеданс резистора, конденсатора, індуктивності - комплексне число; закони
+  Кірхгофа працюють у комплексній формі без диференціальних рівнянь.
+- **Квантова механіка**: хвильова функція `psi(x, t)` приймає complex-значення;
+  амплітуди ймовірностей складаються комплексно (інтерференція).
+- **Комп'ютерна графіка**: множина Мандельброта - множина `c ∈ C`, для яких
+  ітерація `z_{n+1} = z_n^2 + c` обмежена.
+- **Теорія керування**: передавальні функції в просторі Лапласа і Фур'є,
+  годограф Найквіста, аналіз стійкості систем за полюсами.
+- **2D-геометрія**: точка `(x, y)` як `x + y*1j`. Поворот на кут `θ` - множення
+  на `cmath.exp(1j*θ)`. Це коротше за матричні операції.
+
+```python
+import cmath, math
+
+p = 3 + 4j                            # Point (3, 4)
+rotated = p * cmath.exp(1j * math.pi/2)  # Rotate 90° counter-clockwise
+print(round(rotated.real, 2),
+      round(rotated.imag, 2))         # -4.0, 3.0
+```
+
+**Обмеження**
+
+- `complex` не порівнюється з `<`, `>` - комплексні числа не впорядковані.
+  Лише `==` і `!=`.
+- Дійсна і уявна частини - `float`, з усіма обмеженнями IEEE-754 точності.
+  Для точних обчислень з комплексними числами потрібні зовнішні бібліотеки
+  (`sympy.I`).
+- Хешуються (immutable), можуть бути ключами `dict` або елементами `set`.
+
+*Links*
+
+- [Python docs: complex](https://docs.python.org/3/library/functions.html#complex)
+- [Python docs: cmath](https://docs.python.org/3/library/cmath.html)
+
+
+
 ### Decimal
 
 *Summary*
@@ -340,6 +427,95 @@ print(rounded_value)  # Output: 1.23
 print(0.1 + 0.2)  # Output: 0.30000000000000004 (imprecision)  # Float
 print(Decimal('0.1') + Decimal('0.2'))  # Output: 0.3 (precise)  # Decimal
 ```
+
+
+
+### `bytes`, `bytearray`, `memoryview`
+
+*Summary*
+> Три типи для роботи з послідовностями байтів: `bytes` - незмінна, `bytearray` -
+> змінна, `memoryview` - не власник пам'яті, а **вікно** в чужий буфер. Усі три
+> підтримують buffer protocol (PEP 3118), що дозволяє передавати дані між Python
+> і C-розширеннями без копіювання. `memoryview` дає зрізи, які не копіюють дані, -
+> ключова перевага при обробці великих бінарних масивів.
+
+**`bytes` і `bytearray`**
+
+`bytes` - послідовність цілих чисел `0..255`, незмінна; літерал - `b'hello'`. Як
+`str`, але без кодування - чиста двійкова послідовність.
+
+`bytearray` - те ж саме, але змінне: можна `ba[0] = 65`, `ba.append(0xFF)`,
+`ba.extend(other)`. Літералу немає, конструктор: `bytearray(b'hello')`.
+
+```python
+b = b'\x00\x01\x02'
+b[0] = 5        # TypeError: 'bytes' object does not support item assignment
+
+ba = bytearray(b'\x00\x01\x02')
+ba[0] = 5       # OK
+ba.append(0xFF) # OK
+```
+
+**`memoryview` - вікно без копії**
+
+`memoryview` не зберігає байтів - він посилається на буфер іншого об'єкта
+(`bytes`, `bytearray`, `array.array`, NumPy-масив, mmap). Зрізи і доступ до
+елементів виконуються **без копіювання**.
+
+```python
+buf = bytearray(b'Hello, world!')
+view = memoryview(buf)
+
+slice_ = view[7:12]      # No copy - same memory
+slice_[0] = ord('W')
+print(buf)               # bytearray(b'Hello, World!') - mutated through view
+print(bytes(slice_))     # b'World'
+
+view.release()           # Releases the buffer; further use raises ValueError
+```
+
+Звичайний зріз `b'\x00\x01\x02\x03'[1:3]` створює новий `bytes`-об'єкт і копіює
+дані. Для масиву на 100 MB це 100 MB I/O + alloc. `memoryview(buf)[1:3]` -
+константний час, нуль байтів скопійовано.
+
+**Buffer protocol (PEP 3118)**
+
+Об'єкт експонує внутрішнє представлення (вказівник, розмір, тип елементів,
+strides) через C-API `__buffer__` / `__release_buffer__`. `memoryview` -
+Python-обгортка над цим протоколом. Підтримують протокол: `bytes`, `bytearray`,
+`array.array`, `mmap.mmap`, NumPy `ndarray`, `pickle.PickleBuffer` та інші
+C-розширення, які працюють з бінарними даними.
+
+**Типові застосування**
+
+- **Парсинг бінарних форматів** (PNG, PDF, мережеві протоколи) - зрізати заголовки
+  і поля без витрат на копіювання багатомегабайтних блоків.
+- **Network I/O**: `socket.recv_into(buffer)`, `socket.send(memoryview(buf)[offset:])` -
+  передавати позиції в буфері без створення нових об'єктів на гарячому шляху.
+- **Передача даних у C-розширення**: NumPy, `Pillow`, `cv2` приймають
+  buffer-сумісні об'єкти безпосередньо.
+- **Структурований доступ через `.cast()`**:
+
+  ```python
+  buf = bytearray(8)
+  view = memoryview(buf).cast('I')  # View as uint32 array
+  view[0] = 0xDEADBEEF
+  print(buf)  # bytearray(b'\xef\xbe\xad\xde\x00\x00\x00\x00')
+  ```
+
+**Обмеження**
+
+- `memoryview` тримає посилання на буфер. Поки view живий, `bytearray` не можна
+  скоротити (`resize`) - `BufferError: Existing exports of data: object cannot be
+  re-sized`. Метод `.release()` або `with memoryview(buf) as view:` явно
+  відпускає буфер.
+- Якщо буфер мутується через `bytearray`, попередньо взяті значення з view
+  бачать поточний стан - це не snapshot.
+
+*Links*
+
+- [Python docs: memoryview](https://docs.python.org/3/library/stdtypes.html#memoryview)
+- [PEP 3118 - Revising the buffer protocol](https://peps.python.org/pep-3118/)
 
 
 

@@ -555,6 +555,134 @@ person.age = 25
 
 
 
+### `dataclasses` (PEP 557)
+
+*Summary*
+> `@dataclass` (Python 3.7+, [PEP 557](https://peps.python.org/pep-0557/)) -
+> декоратор, який автоматично генерує `__init__`, `__repr__`, `__eq__` та інші
+> dunder-методи на основі анотацій типів полів класу. Усуває boilerplate для
+> класів, які переважно зберігають дані. Налаштовується параметрами:
+> `frozen=True` (незмінність), `slots=True` (генерація `__slots__`),
+> `kw_only=True` (тільки keyword-аргументи), `order=True` (генерація операторів
+> порівняння).
+
+**Проблема, яку розв'язує**
+
+Без `dataclass` клас-контейнер вимагає писати boilerplate вручну:
+
+```python
+class Point:
+    def __init__(self, x: float, y: float):
+        self.x = x
+        self.y = y
+
+    def __repr__(self):
+        return f"Point(x={self.x!r}, y={self.y!r})"
+
+    def __eq__(self, other):
+        if not isinstance(other, Point):
+            return NotImplemented
+        return (self.x, self.y) == (other.x, other.y)
+
+    def __hash__(self):
+        return hash((self.x, self.y))
+```
+
+Той самий клас із `@dataclass`:
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)   # frozen=True - immutable, auto-generates __hash__
+class Point:
+    x: float
+    y: float
+```
+
+Згенеровано: `__init__(self, x, y)`, `__repr__`, `__eq__`, `__hash__` (бо
+`frozen=True`).
+
+**Параметри декоратора**
+
+```python
+@dataclass(
+    init=True,         # Generate __init__
+    repr=True,         # Generate __repr__
+    eq=True,           # Generate __eq__
+    order=False,       # Generate __lt__, __le__, __gt__, __ge__
+    unsafe_hash=False, # Generate __hash__ even for mutable
+    frozen=False,      # Make instance immutable (setattr raises FrozenInstanceError)
+    match_args=True,   # Generate __match_args__ for structural pattern matching (3.10+)
+    kw_only=False,     # All fields are keyword-only in __init__ (3.10+)
+    slots=False,       # Generate __slots__ (3.10+)
+)
+class C: ...
+```
+
+**Mutable defaults: `field(default_factory=...)`**
+
+Те ж саме гачкове місце, що і зі звичайними mutable-аргументами за замовчуванням:
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class BadContainer:
+    items: list = []          # ValueError: mutable default for field 'items'
+                              # is not allowed: use default_factory
+
+@dataclass
+class GoodContainer:
+    items: list = field(default_factory=list)   # New list per instance
+```
+
+`field()` дозволяє контролювати окремі поля: `default`, `default_factory`,
+`init=False` (не приймається в `__init__`), `repr=False` (не показується в repr),
+`compare=False` (не бере участі в `__eq__`/порівнянні), `metadata={...}`.
+
+**`__post_init__` для валідації**
+
+Якщо потрібна логіка після стандартного `__init__`:
+
+```python
+@dataclass
+class Range:
+    low: int
+    high: int
+
+    def __post_init__(self):
+        if self.low > self.high:
+            raise ValueError(f"low ({self.low}) > high ({self.high})")
+```
+
+**`slots=True`**
+
+З 3.10 `@dataclass(slots=True)` автоматично генерує `__slots__` з імен полів -
+менше пам'яті, швидший доступ, заборона додавання нових атрибутів. Деталі - у
+розділі `__slots__` вище.
+
+**Порівняння з альтернативами**
+
+| Інструмент | Незмінність | Валідація | Slots | Серіалізація | Коли |
+| --- | --- | --- | --- | --- | --- |
+| `@dataclass` | `frozen=True` | через `__post_init__` | `slots=True` (3.10+) | вручну | стандартний контейнер даних, stdlib |
+| `typing.NamedTuple` | завжди | ні | завжди | вручну | tuple-семантика, indexable |
+| `collections.namedtuple` | завжди | ні | завжди | вручну | застаріле, без type hints |
+| `pydantic.BaseModel` | `model_config` | автоматична | `model_config` | вбудована | API-моделі, validation з I/O |
+| `attrs` (бібліотека) | `frozen=True` | конвертери і валідатори | `slots=True` | через cattrs | складніша конфігурація, до dataclass |
+
+`@dataclass` - правильний дефолт у stdlib для DTO, value objects, конфігураційних
+об'єктів. Pydantic - коли потрібна автоматична валідація на вході (FastAPI
+request body, JSON-з ненадійного джерела).
+
+*Links*
+
+- [PEP 557 - Data Classes](https://peps.python.org/pep-0557/)
+- [Python docs: dataclasses](https://docs.python.org/3/library/dataclasses.html)
+- [Raymond Hettinger: dataclasses talk (PyCon 2018)](https://www.youtube.com/watch?v=T-TwcmT6Rcw)
+
+
+
 ### Атрибути. В чому сенс `_value`, `__value`
 
 **Атрибути** - це змінні класу. Можуть бути атрибути класу або атрибути інстансу. 
