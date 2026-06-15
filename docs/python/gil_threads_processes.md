@@ -1070,6 +1070,116 @@ Thread Thread-2 has value: 2
 
 
 
+### C-розширення, які відпускають GIL
+
+*Summary*
+> Винятком із правила "CPU-bound у CPython не паралелиться через потоки" є
+> C/C++/Rust-розширення, які явно відпускають GIL макросами
+> `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS` навколо тривалих
+> обчислень. У такі моменти інші потоки виконують Python-байткод реально
+> паралельно. Це канонічний механізм поєднання asyncio + CPU-bound операції:
+> винести виклик у `asyncio.to_thread`, потік відпустить GIL, event loop
+> продовжить обслуговувати запити.
+
+**Принцип**
+
+C-розширення викликає `Py_BEGIN_ALLOW_THREADS` перед тривалою операцією, яка не
+торкається Python-обʼєктів (компресія буфера, шифрування, обчислення хешу,
+векторна арифметика над `ndarray`). Поки GIL відпущений, інтерпретатор віддає
+його іншому потоку. Після завершення обчислення розширення викликає
+`Py_END_ALLOW_THREADS` і чекає GIL, щоб повернути результат як Python-обʼєкт.
+
+З Python-боку це невидимо - просто виклик `func(buf)` блокує потік на час C-роботи,
+але **не** утримує GIL.
+
+**Канонічні бібліотеки, які відпускають GIL**
+
+- **`hashlib`** (`sha256`, `md5`, `sha1`, ...) - на буферах від ~2048 байт і
+  більше CPython вмикає GIL-release режим.
+- **`zlib`, `gzip`, `bz2`, `lzma`** - компресія/декомпресія блоків.
+- **NumPy** - векторні операції над `ndarray` (`np.sum`, `np.dot`, `np.linalg.*`,
+  ufunc'и). Pure-Python ітерація через `for x in arr` - **не** відпускає, бо
+  кожен елемент проходить через Python-обʼєкт.
+- **Pandas** - частина агрегацій через NumPy під капотом; `.apply(func)` з
+  Python-функцією - утримує GIL.
+- **Pillow** - перетворення зображень (`resize`, `convert`, `filter`, `save` у
+  стиснений формат).
+- **`bcrypt`, `argon2-cffi`** - password hashing. Канонічний приклад блокуючого
+  CPU-bound у auth-сервісі.
+- **`cryptography`** (`hazmat`-шар) - симетричне шифрування, X.509-операції.
+- **`lxml`** - парсинг XML/HTML на буферах через libxml2.
+- **`Pillow-SIMD`, `opencv-python`, `scipy`** - image/signal processing.
+
+**Канонічний приклад: bcrypt у asyncio**
+
+```python
+import asyncio
+import bcrypt
+
+
+async def register_user(password: str) -> bytes:
+    salt = bcrypt.gensalt(rounds=12)
+    # ~200ms CPU-bound, but releases GIL inside the C extension
+    return await asyncio.to_thread(bcrypt.hashpw, password.encode(), salt)
+```
+
+Без `to_thread` подія event loop'а блокувалася б на ~200 мс, не обслуговуючи
+інших запитів. З `to_thread` C-розширення відпускає GIL під час хешування,
+event loop вільно крутить інші корутини, паралельно з фоновим потоком.
+
+**Перевірка GIL-release для конкретної операції**
+
+- Документація бібліотеки (для NumPy, Pillow, cryptography - явні згадки).
+- Вихідний код C-розширення: пошук `Py_BEGIN_ALLOW_THREADS` / `NOGIL`.
+- Емпірично: запустити кілька потоків з тестовою операцією, виміряти, чи дає
+  threading прискорення проти послідовного виконання. Якщо ні - GIL утримується.
+
+```python
+# Smoke test: linear speedup -> GIL released
+from concurrent.futures import ThreadPoolExecutor
+import time, hashlib
+
+buf = b"\x00" * 10_000_000
+
+def hash_once():
+    hashlib.sha256(buf).digest()
+
+t0 = time.perf_counter()
+for _ in range(4): hash_once()
+sequential = time.perf_counter() - t0
+
+t0 = time.perf_counter()
+with ThreadPoolExecutor(max_workers=4) as pool:
+    list(pool.map(lambda _: hash_once(), range(4)))
+parallel = time.perf_counter() - t0
+
+print(f"Sequential: {sequential:.2f}s, Parallel: {parallel:.2f}s, "
+      f"Speedup: {sequential/parallel:.2f}x")
+```
+
+При відпущенні GIL на 4 потоки очікувано speedup ~3-4×; якщо ~1× - GIL
+утримується і шлях через `multiprocessing.Pool` / `ProcessPoolExecutor`.
+
+**Чого не вистачає**
+
+- **Чиста Python-операція ніколи не відпускає GIL.** Жодний `to_thread` навколо
+  цикла `for i in range(...)` не дасть паралельності в межах одного процесу.
+- **`functools.lru_cache` / dict-операції / атрибутний доступ** - також під GIL.
+- **Сам `to_thread` не магічно паралелізує** - він лише дає шанс на паралельність,
+  якщо викликаний код її уможливлює.
+
+Канонічна евристика з вибору інструменту - у розділі
+"[Для яких завдань варто використовувати потоки, для яких - процеси, а для яких -
+асинхронність?](#для-яких-завдань-варто-використовувати-потоки-для-яких--процеси-а-для-яких--асинхронність)".
+
+*Links*
+
+- [Python docs: Initialization, Finalization, and Threads (C API)](https://docs.python.org/3/c-api/init.html#thread-state-and-the-global-interpreter-lock)
+- [PEP 311 - Simplified Global Interpreter Lock Acquisition for Extensions](https://peps.python.org/pep-0311/)
+- [NumPy docs: Parallel Programming with NumPy](https://numpy.org/doc/stable/reference/thread_safety.html)
+
+
+
 ### Що таке грінлети. Загальне поняття. Приклади реалізацій
 
 Грінлети - Greenlet - Green thread - Зелені потоки - Легкі потоки всередині віртуальної 

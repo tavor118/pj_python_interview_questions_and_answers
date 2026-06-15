@@ -1009,6 +1009,104 @@ context switch перевищують економію від паралеліз
 
 
 
+### `asyncio.create_subprocess_exec` для зовнішніх процесів
+
+*Summary*
+> Коли тяжку роботу робить **зовнішня програма** (FFmpeg, ImageMagick,
+> `pdftotext`, `git`), правильний інструмент - не `to_thread` навколо
+> `subprocess.run`, а нативний asyncio-API: `asyncio.create_subprocess_exec(...)`
+> повертає `Process`-обʼєкт, який інтегрований з event loop через
+> SIGCHLD + неблокуючі pipe'и. Event loop не паркує допоміжний потік - чекає
+> завершення штатними механізмами OS.
+
+**Базовий патерн**
+
+```python
+import asyncio
+
+async def transcode(src: str, dst: str) -> None:
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-i", src, "-c:v", "libx264", dst,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()        # Awaits process exit
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed: {stderr.decode()}")
+```
+
+`await proc.communicate()` повертає кортеж `(stdout_bytes, stderr_bytes)` і чекає
+завершення процесу. На відміну від `subprocess.run()`, який блокує потік на
+`waitpid()`, asyncio-варіант реєструє SIGCHLD-обробник і повертає управління
+event loop'у; інші корутини виконуються паралельно з зовнішнім процесом.
+
+**`exec` vs `shell`**
+
+- `create_subprocess_exec(*args)` - передає аргументи як список, без shell.
+  Безпечний дефолт.
+- `create_subprocess_shell(cmd)` - запускає `cmd` через `/bin/sh -c`. Зручно
+  для пайплайнів (`"foo | bar"`), але вразливо до shell-ін'єкції, якщо у
+  команді є user-input. Не передавати неперевірені рядки.
+
+```python
+# Safe
+proc = await asyncio.create_subprocess_exec("ls", "-la", user_dir)
+
+# Risky if user_dir contains "; rm -rf /"
+proc = await asyncio.create_subprocess_shell(f"ls -la {user_dir}")
+```
+
+**Стрімінг великих output'ів**
+
+`communicate()` буферизує весь stdout/stderr у пам'яті. Для багатогігабайтних
+output'ів - читати через `proc.stdout.readline()` / `read(n)` у циклі або
+писати у файл напряму через `stdout=open("out.bin", "wb")`.
+
+```python
+proc = await asyncio.create_subprocess_exec(
+    "ffmpeg", "-i", src, "-progress", "pipe:1", "-c:v", "libx264", dst,
+    stdout=asyncio.subprocess.PIPE,
+)
+async for line in proc.stdout:                       # Stream progress lines
+    if line.startswith(b"out_time="):
+        print(line.decode().strip())
+await proc.wait()
+```
+
+**`create_subprocess_exec` vs `to_thread(subprocess.run, ...)`**
+
+Технічно це працює, але:
+
+- `subprocess.run` блокує OS-потік на `waitpid()` - той самий "трюк" з
+  `aiofiles`-обгорткою над thread pool'ом. Потік ThreadPoolExecutor паркується
+  на час життя зовнішнього процесу.
+- `create_subprocess_exec` робить це нативно через event loop без потоку:
+  один SIGCHLD-обробник на всі активні subprocess'и.
+- На сотнях одночасних зовнішніх процесів `to_thread`-підхід вичерпає
+  `default_executor` (max_workers `min(32, cpu+4)`); asyncio-варіант масштабується
+  скільки дозволить ОС (`ulimit -n`, `kernel.pid_max`).
+
+**Завершення**
+
+`proc.terminate()` шле SIGTERM, `proc.kill()` - SIGKILL. Канонічний guard з
+тайм-аутом:
+
+```python
+try:
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+except asyncio.TimeoutError:
+    proc.kill()
+    await proc.wait()                                # Reap to avoid zombie
+    raise
+```
+
+*Links*
+
+- [Python docs: asyncio Subprocesses](https://docs.python.org/3/library/asyncio-subprocess.html)
+- [Python docs: subprocess (sync)](https://docs.python.org/3/library/subprocess.html)
+
+
+
 ### Що таке `aiohttp`
 
 `aiohttp` — це асинхронна бібліотека Python для роботи з HTTP, яка забезпечує клієнтську 
