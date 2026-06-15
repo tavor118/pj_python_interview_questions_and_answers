@@ -143,6 +143,59 @@ ACID розшифровується як "Atomicity, Consistency, Isolation, Dur
 та гарантії цілісності даних, тоді як BASE більше акцентується на доступності, 
 швидкості та готовності системи працювати навіть за умови відмов.
 
+**Що ACID НЕ гарантує**
+
+Часта помилка - сприймати ACID як "база сама зробить дані правильними". Кожна
+літера має конкретну, обмежену гарантію:
+
+- **Atomicity** захищає від часткового виконання транзакції (`UPDATE 1` пройшов,
+  `UPDATE 2` упав - база відкотить обидва). Не захищає від двох паралельних
+  транзакцій, які кожна окремо виконалась повністю, але разом залишили
+  некоректний стан (див. [write skew](#write-skew)).
+- **Consistency** означає, що база зберігає **ті** правила цілісності, які
+  виражені через її механізми: `PRIMARY KEY`, `FOREIGN KEY`, `UNIQUE`,
+  `NOT NULL`, `CHECK`, exclusion constraints, тригери. Бізнес-інваріанти, які
+  не виражені як constraint, база не знає - "кожен premium-клієнт має активний
+  payment method", "на чергуванні має лишатися хоча б один лікар" - це
+  відповідальність application-коду, моделі даних і явних locks.
+- **Isolation** залежить від конкретного рівня ізоляції (див. розділ
+  "Що таке рівні ізоляції транзакцій"). Default `Read Committed` у PostgreSQL
+  не гарантує стабільний snapshot протягом транзакції, не запобігає lost
+  update без явного захисту і допускає write skew.
+- **Durability** гарантує виживання змін після `COMMIT` у межах однієї бази,
+  але не гарантує, що зовнішні системи (Kafka, Stripe, Redis) теж побачили
+  цю транзакцію - для цього потрібні Outbox Pattern, Saga, idempotency keys
+  (див. [`architecture/architecture_patterns.md`](../architecture/architecture_patterns.md)).
+
+**ACID vs BASE - не дихотомія SQL vs NoSQL**
+
+Поширене спрощення: "SQL-бази - це ACID, NoSQL - це BASE". Реальна картина
+тонша:
+
+- PostgreSQL, MySQL InnoDB, SQL Server, Oracle мають сильну транзакційну
+  модель, але це не означає, що архітектура автоматично ACID: якщо у одній
+  логічній операції беруть участь Postgres + Kafka + Stripe + Redis, ACID
+  у межах Postgres не охоплює інші системи.
+- NoSQL-бази мають свої транзакційні механізми. MongoDB з 4.0 (2018)
+  підтримує multi-document transactions на replica set, з 4.2 (2019) - на
+  sharded cluster ([MongoDB docs: Transactions](https://www.mongodb.com/docs/manual/core/transactions/)).
+  Cassandra має lightweight transactions для compare-and-set на одній
+  партиції. Redis має `MULTI/EXEC` + `WATCH` (optimistic concurrency на
+  ключах).
+
+Правильніше ставити питання не "ACID чи BASE?", а конкретніше:
+
+- які саме сутності беруть участь в операції;
+- де проходить consistency boundary (всередині якої межі потрібна сувора
+  узгодженість);
+- де допустима eventual consistency;
+- чи операція ідемпотентна для retry;
+- що буде при network partition.
+
+Концепція consistency boundary детально розкрита у
+[`architecture/architecture_patterns.md`](../architecture/architecture_patterns.md)
+розділі "Consistency boundary".
+
 
 
 ### Яку базу даних використовувати у проекті?
@@ -691,22 +744,449 @@ CREATE INDEX CONCURRENTLY index_name ON table_name (column_name);
 Усуває всі згадані проблеми, включаючи "фантомне читання", але може значно знизити 
 продуктивність через блокування ресурсів.
 
-За замовчуванням у PostgreSQL рівень ізоляції Read Committed (Read uncommitted є тим самим, 
-що й Read committed завдяки використанню MVCC).
-Такий рівень ізоляції завжди дозволяє бачити зміни внесені успішно завершеними транзакціями
-в паралельно відкритих транзакціях, що залишилися.
-У транзакції, що працює на цьому рівні, запит SELECT (без FOR UPDATE/SHARE) бачить лише дані,
-які були зафіксовані до початку запиту; він ніколи не побачить незафіксованих даних чи змін,
-внесених у процесі виконання запиту паралельними транзакціями.
-По суті, запит SELECT бачить знімок бази даних у момент початку виконання запиту.
-Однак SELECT бачить результати змін, внесених раніше в цій транзакції,
-навіть якщо вони ще не зафіксовані. Також треба зауважити, що два послідовні оператори 
-SELECT можуть бачити різні дані навіть у рамках однієї транзакції, якщо якісь інші 
-транзакції зафіксують зміни після виконання першого SELECT.
+**Однакова назва ≠ однакова поведінка**
+
+Стандарт SQL описує чотири рівні, але кожна СУБД реалізує їх по-своєму. Часта
+пастка - припускати, що `REPEATABLE READ` у PostgreSQL і MySQL InnoDB означають
+одне і те ж.
+
+**PostgreSQL** ([docs: Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html)):
+
+- Default - `Read Committed`.
+- `Read Uncommitted` приймається синтаксично, але поводиться як `Read Committed`:
+  "PostgreSQL's Read Uncommitted mode behaves like Read Committed. This is
+  because it is the only sensible way to map the standard isolation levels to
+  PostgreSQL's multiversion concurrency control architecture". Фактично
+  реалізовано три рівні з чотирьох.
+- `Repeatable Read` реалізовано як Snapshot Isolation: "implemented using a
+  technique known in academic database literature and in some other database
+  products as Snapshot Isolation".
+- `Serializable` з версії 9.1 - Serializable Snapshot Isolation (SSI):
+  "implemented using a technique known in academic database literature as
+  Serializable Snapshot Isolation, which builds on Snapshot Isolation by
+  adding checks for serialization anomalies". До 9.1 `Serializable` поводився
+  як `Repeatable Read`.
+
+**MySQL InnoDB** ([docs: InnoDB Transaction Isolation Levels](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-isolation-levels.html)):
+
+- Default - `Repeatable Read` (не `Read Committed`, як у Postgres).
+- Plain (non-locking) `SELECT` використовує consistent snapshot, не бере
+  блокувань.
+- Для locking reads (`SELECT ... FOR UPDATE`, `FOR SHARE`), `UPDATE`, `DELETE`
+  з range-умовою InnoDB бере gap locks і next-key locks: "InnoDB locks the
+  index range scanned, using gap locks or next-key locks to block insertions
+  by other sessions into the gaps covered by the range". Це може заблокувати
+  insert у "сусідній" діапазон.
+- Виняток: для unique index з unique search condition блокується лише знайдений
+  запис, без gap.
+
+**SQL Server** ([docs: SET TRANSACTION ISOLATION LEVEL](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-transaction-isolation-level-transact-sql)):
+
+- Default - `Read Committed` (у on-prem; Azure SQL Database має
+  `READ_COMMITTED_SNAPSHOT ON` за замовчуванням).
+- Поведінка `Read Committed` залежить від `READ_COMMITTED_SNAPSHOT`:
+  з `OFF` - locks-based, з `ON` - row versioning, читання не блокують записи.
+- Окремий рівень `SNAPSHOT` (потребує `ALLOW_SNAPSHOT_ISOLATION ON`) - як
+  Postgres `Repeatable Read`. Це **п'ятий** рівень, окремий від `Repeatable
+  Read`.
+- `Serializable` - класична range-lock-based реалізація, не SSI.
+
+**Oracle** ([docs: Data Concurrency and Consistency](https://docs.oracle.com/en/database/oracle/oracle-database/19/cncpt/data-concurrency-and-consistency.html)):
+
+- Default - `Read Committed`. Реалізовано через undo segments і snapshot read
+  consistency.
+- Oracle підтримує лише **два** рівні з чотирьох стандартних: `Read Committed`
+  і `Serializable` (плюс `Read-Only` як власне розширення). `Read Uncommitted`
+  і `Repeatable Read` як окремі рівні відсутні.
+- Dirty reads неможливі ні на якому рівні: "Oracle Database never permits a
+  dirty read".
+- `Serializable` дає transaction-scope snapshot - те, що в інших БД називали б
+  Repeatable Read; справжня serial-order serializability за чистим визначенням
+  Berenson 1995 - частковий випадок.
+
+**Базове правило**: перед написанням коду, який покладається на конкретний
+рівень ізоляції, дивитися документацію конкретної версії конкретної бази, не
+тільки на назву.
 
 *Links*
 
 - [Реалізація рівнів ізоляцій у базах даних - dou.ua](https://dou.ua/forums/topic/53101/)
+- [PostgreSQL: Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html)
+- [MySQL InnoDB: Transaction Isolation Levels](https://dev.mysql.com/doc/refman/8.0/en/innodb-transaction-isolation-levels.html)
+- [SQL Server: SET TRANSACTION ISOLATION LEVEL](https://learn.microsoft.com/en-us/sql/t-sql/statements/set-transaction-isolation-level-transact-sql)
+- [Oracle: Data Concurrency and Consistency](https://docs.oracle.com/en/database/oracle/oracle-database/19/cncpt/data-concurrency-and-consistency.html)
+
+
+
+### Snapshot Isolation і Serializable Snapshot Isolation (SSI)
+
+*Summary*
+> Snapshot Isolation (SI) - модель ізоляції, де транзакція бачить узгоджений
+> snapshot бази на момент свого початку. Не входить у стандарт ANSI SQL, але
+> широко реалізована: PostgreSQL `Repeatable Read`, SQL Server `SNAPSHOT`,
+> Oracle `Serializable`. SI допускає write skew - аномалію, яку ANSI-визначена
+> Serializable за стандартом не вимагає запобігати. SSI у PostgreSQL з 9.1
+> доповнює SI runtime-перевірками, які виявляють і блокують такі аномалії.
+
+**Принцип роботи Snapshot Isolation**
+
+При SI транзакція отримує лічильник версій (TID/snapshot) у момент старту і
+читає лише ті версії рядків, які видимі станом на цей момент: інші транзакції,
+що закомітились пізніше, не видно. Не потрібні shared locks на читання -
+читачі не блокують записувачів і навпаки. Це дає високу паралельність, але має
+конкретну межу: SI **дозволяє** write skew (див.
+[нижче](#write-skew)).
+
+**Розрив між ANSI SERIALIZABLE і справжньою serializability**
+
+ANSI SQL визначає `SERIALIZABLE` через відсутність трьох явищ (dirty read,
+non-repeatable read, phantom read). Berenson, Bernstein, Gray, Melton, O'Neil,
+O'Neil ("A Critique of ANSI SQL Isolation Levels", MSR-TR-95-51, June 1995)
+показали, що цього визначення замало:
+
+- SI задовольняє всі три ANSI-заборони, тому деякі вендори історично називали
+  свою SI-реалізацію "Serializable" (Oracle - досі).
+- Але SI допускає write skew, який порушує справжню serializability у сенсі
+  serial-order equivalence: результат паралельного виконання може не
+  відповідати жодному послідовному порядку.
+
+Сильніша гарантія - **conflict serializability** - вимагає, щоб результат
+паралельного виконання був еквівалентний якомусь послідовному порядку.
+PostgreSQL Serializable Snapshot Isolation (SSI) з 9.1 додає до SI runtime-моніторинг
+read/write залежностей і скасовує транзакції, які створюють несеріалізований
+цикл: "monitors for conditions which could make execution of a concurrent set
+of serializable transactions behave in a manner inconsistent with all possible
+serial executions of those transactions". При виявленні - помилка:
+`ERROR: could not serialize access due to read/write dependencies among
+transactions` (SQLSTATE `40001`).
+
+**Реалізації за вендорами**
+
+| СУБД | SI як окремий рівень | "True" Serializable (через runtime check) |
+| --- | --- | --- |
+| PostgreSQL | `Repeatable Read` (SI) | `Serializable` (SSI з 9.1) |
+| SQL Server | `SNAPSHOT` (потребує `ALLOW_SNAPSHOT_ISOLATION ON`) | `SERIALIZABLE` (range locks, не SSI) |
+| Oracle | (немає окремої назви) | `SERIALIZABLE` (фактично SI, дозволяє write skew) |
+| MySQL InnoDB | `Repeatable Read` (snapshot для plain SELECT) | `SERIALIZABLE` (через locks) |
+
+Висновок: якщо потрібен захист від write skew - перевіряти, чи `SERIALIZABLE`
+конкретної бази реалізує conflict serializability (PostgreSQL SSI), чи лише
+ANSI-визначення (Oracle, SQL Server). Якщо ні - покладатися на partial unique
+index, advisory lock на спільний ключ або pessimistic locking.
+
+*Links*
+
+- [Berenson et al. (1995): A Critique of ANSI SQL Isolation Levels](https://www.microsoft.com/en-us/research/publication/a-critique-of-ansi-sql-isolation-levels/) - MSR-TR-95-51
+- [Fekete, Liarokapis, O'Neil, O'Neil, Shasha (2005): Making Snapshot Isolation Serializable](https://www.cs.umb.edu/~poneil/MakingSnapshotSerializable.pdf) - алгоритмічна основа SSI
+- [PostgreSQL Wiki: SSI](https://wiki.postgresql.org/wiki/Serializable) - Kevin Grittner's writeup
+
+
+
+### Lost update
+
+*Summary*
+> Lost update - аномалія, коли одна транзакція непомітно затирає результат
+> іншої. Класичний приклад: дві транзакції читають баланс 100, кожна списує 30,
+> кожна записує 70 - фінальний результат 70 замість 40. Виникає при патерні
+> read-modify-write на рівні `Read Committed` без явного захисту.
+
+**Сценарій**
+
+```
+Transaction A                Transaction B
+-------------                -------------
+READ balance = 100
+                             READ balance = 100
+new = 100 - 30 = 70
+                             new = 100 - 30 = 70
+WRITE balance = 70
+                             WRITE balance = 70
+COMMIT                       COMMIT
+
+Final balance = 70  (expected 40)
+```
+
+Жодна транзакція не виконалась наполовину - atomicity дотримана. Жодна не
+читала dirty data. Але результат некоректний з точки зору бізнесу.
+
+**Lost update - не тільки про гроші**
+
+Той самий патерн виникає скрізь, де application робить read → calculate →
+write:
+
+- лічильники переглядів, лайків;
+- inventory: stock = 5, два замовлення обидва бачать "є", обидва записують 4;
+- налаштування профілю: дві транзакції оновлюють різні поля одного profile
+  object, остання перезаписує;
+- job dispatch: два worker'и бачать `status = 'NEW'`, обидва беруть у роботу.
+
+**Захист**
+
+1. **Атомарний UPDATE з операцією на стороні бази** - перенести арифметику з
+   application у SQL:
+
+   ```sql
+   UPDATE accounts
+   SET balance = balance - 30
+   WHERE id = 1
+     AND balance >= 30;
+   ```
+
+   Перевірити `rows affected`: `1` - списано, `0` - грошей недостатньо. Не
+   читаємо стан, потім записуємо нове значення - кажемо базі "застосуй
+   операцію до поточного значення з умовою".
+
+2. **CHECK constraint** як backstop:
+
+   ```sql
+   ALTER TABLE accounts
+   ADD CONSTRAINT balance_non_negative CHECK (balance >= 0);
+   ```
+
+3. **Pessimistic locking** через `SELECT ... FOR UPDATE` -
+   див. [`infrastructure/sql.md`](sql.md) розділ "Що робить SELECT FOR UPDATE?".
+
+4. **Optimistic locking** з версією:
+
+   ```sql
+   UPDATE accounts
+   SET balance = 70, version = version + 1
+   WHERE id = 1 AND version = 5;
+   ```
+
+   Якщо `rows affected = 0` - читали застарілу версію, треба повторити. Деталі
+   патерну - у [`architecture/system_design.md`](../architecture/system_design.md)
+   розділі "Робота в конкурентному середовищі".
+
+Підняття рівня ізоляції не є першочерговим інструментом проти lost update -
+часто простіша атомарна `UPDATE`-конструкція дає сильнішу гарантію за менший
+оверхед.
+
+
+
+### Write skew
+
+*Summary*
+> Write skew - аномалія, коли дві транзакції читають спільний набір даних,
+> приймають рішення на основі того, що вони бачили, і змінюють **різні** рядки.
+> Жодного прямого конфлікту по одному рядку немає, але разом вони порушують
+> бізнес-інваріант. Snapshot Isolation (PostgreSQL `Repeatable Read`, SQL Server
+> `SNAPSHOT`, Oracle `Serializable`) допускає write skew; справжній
+> Serializable (Postgres SSI) - запобігає.
+
+**Канонічний приклад: лікарі на чергуванні**
+
+Інваріант: на чергуванні має лишатися хоча б один лікар. Зараз чергують
+Анна і Богдан.
+
+```
+Transaction A (Anna)              Transaction B (Bohdan)
+--------------------              ----------------------
+SELECT COUNT(*)
+FROM doctors_on_call
+WHERE is_on_call = true;
+-- 2
+                                  SELECT COUNT(*)
+                                  FROM doctors_on_call
+                                  WHERE is_on_call = true;
+                                  -- 2
+UPDATE doctors_on_call
+SET is_on_call = false
+WHERE doctor_id = 1;  -- Anna
+                                  UPDATE doctors_on_call
+                                  SET is_on_call = false
+                                  WHERE doctor_id = 2;  -- Bohdan
+COMMIT;
+                                  COMMIT;
+
+Final: нікого на чергуванні
+```
+
+Кожна транзакція окремо коректна. Жодна не оновила той самий рядок, що інша.
+Але разом вони порушили інваріант "хоча б один".
+
+**Типові сценарії**
+
+- "має лишитися хоча б один active admin";
+- "не більше N активних сесій на користувача";
+- "не можна мати два активні subscription";
+- "не можна запустити payout, якщо вже є payout у `processing`";
+- "сума резервацій на ресурс не має перевищувати ліміт".
+
+Спільне: правило стосується **набору** рядків (`COUNT`, `SUM`, `EXISTS`), а не
+конкретного рядка.
+
+**Захист**
+
+1. **Підняти рівень ізоляції до справжнього Serializable**. У PostgreSQL з 9.1
+   SSI виявить write skew і скасує одну з транзакцій з SQLSTATE `40001`.
+   Application мусить повторити транзакцію. У SQL Server `SERIALIZABLE` дає
+   range locks і теж запобігає; в Oracle `SERIALIZABLE` - **не** запобігає
+   (це фактично SI), потрібен інший підхід.
+
+2. **Partial unique index** для випадків "не більше одного" або "не більше
+   одного активного":
+
+   ```sql
+   CREATE UNIQUE INDEX one_active_subscription
+   ON subscriptions(user_id)
+   WHERE status = 'ACTIVE';
+   ```
+
+   Бізнес-інваріант переноситься з application у механіку бази - порушити
+   його неможливо.
+
+3. **Блокування спільного "батьківського" ресурсу** через `SELECT ... FOR
+   UPDATE` на logical group:
+
+   ```sql
+   SELECT *
+   FROM hospital_shifts
+   WHERE shift_id = 123
+   FOR UPDATE;
+   ```
+
+   Усі зміни лікарів у межах зміни проходять через заблокований parent row.
+   Зменшує паралельність, але робить інваріант контрольованим.
+
+4. **Advisory locks** для логічних ключів, що не мапляться на конкретні рядки:
+
+   ```sql
+   SELECT pg_advisory_xact_lock(hashtext('shift:123'));
+   ```
+
+   У Postgres - lock у межах транзакції; відпускається на commit/rollback.
+
+
+
+### Read skew
+
+*Summary*
+> Read skew - аномалія, коли транзакція або послідовність запитів читає дані
+> з різних моментів часу і збирає логічно неузгоджену картину. Класичний
+> приклад: звіт читає Account A до переказу і Account B після, отримує суму,
+> якої ніколи не існувало як цілісного стану. Snapshot Isolation (PostgreSQL
+> `Repeatable Read` і вище) запобігає read skew - стабільний snapshot робить
+> усі читання у межах транзакції узгодженими.
+
+**Сценарій**
+
+Стан до:
+
+```
+Account A = 100
+Account B = 100
+Total     = 200
+```
+
+Інша транзакція переказує 50 з A на B. Стан після:
+
+```
+Account A = 50
+Account B = 150
+Total     = 200
+```
+
+Звіт-транзакція на рівні `Read Committed` (де кожен statement читає свій
+snapshot):
+
+```
+READ A           -- 100 (до переказу)
+                                       -- паралельна транзакція переказує
+READ B           -- 150 (після переказу)
+Total = 250      -- стан, якого ніколи не існувало
+```
+
+Жодного dirty read не було - усі читання лише закомічених даних. Проблема в
+тому, що читання відбулися у різні моменти часу.
+
+**Сценарії, де read skew болить**
+
+- фінансові звіти, reconciliation;
+- risk calculations, які залежать від кількох таблиць;
+- batch processing, що формує snapshot для downstream-системи;
+- analytics, де довгий запит збирає дані з кількох join'ів.
+
+**Захист**
+
+- **Запустити транзакцію на рівні `Repeatable Read` (Postgres) або `SNAPSHOT`
+  (SQL Server)**: усі statement'и побачать узгоджений snapshot на момент
+  старту транзакції. Це найдешевший і канонічний шлях для звітів.
+- **Один `SELECT` з JOIN** замість серії окремих запитів: на рівні одного
+  statement Postgres дає консистентне читання навіть на `Read Committed`.
+- **Для distributed read across services** - snapshot reads через MVCC engine
+  або послідовність версіонованих snapshots (наприклад, у DDD-моделі - читати
+  через aggregate boundary, не через міжсервісні запити).
+
+
+
+### Serialization anomaly
+
+*Summary*
+> Serialization anomaly - найзагальніший клас порушень: паралельне виконання
+> транзакцій дало результат, який неможливо отримати жодним послідовним
+> порядком цих транзакцій. Lost update і write skew - окремі типи serialization
+> anomalies. Справжній Serializable (PostgreSQL SSI) - гарантує її відсутність;
+> ANSI-визначення `SERIALIZABLE` через відсутність трьох явищ - не гарантує
+> (див. розділ "Snapshot Isolation і SSI").
+
+**Формальне означення**
+
+Паралельне виконання транзакцій T1, T2, ..., Tn серіалізоване, якщо результат
+еквівалентний якомусь послідовному порядку T<sub>i1</sub> → T<sub>i2</sub> →
+... → T<sub>in</sub>. "Еквівалентний" означає: однакові результати всіх
+читань і однаковий фінальний стан бази.
+
+Якщо такого порядку не існує - це serialization anomaly. На практиці це
+проявляється у багах, коли дані опиняються в неузгодженому стані без явного
+порушення жодного окремого constraint'а:
+
+- write skew (різні рядки оновлені, інваріант зламаний);
+- lost update без явного захисту;
+- cycle of read/write dependencies між кількома транзакціями.
+
+**Retry як частина моделі при сильній ізоляції**
+
+При SSI (PostgreSQL Serializable) база сама **виявляє** serialization
+anomalies і скасовує одну з транзакцій з SQLSTATE `40001`. Application
+**мусить** обробляти цю помилку і повторювати транзакцію. Це не помилка
+дизайну - це частина контракту сильної ізоляції.
+
+Шаблон retry:
+
+```python
+from sqlalchemy.exc import OperationalError
+import random, time
+
+def execute_with_retry(session, op, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            op(session)
+            session.commit()
+            return
+        except OperationalError as e:
+            session.rollback()
+            if getattr(e.orig, "pgcode", None) != "40001":
+                raise  # not a serialization failure - propagate
+            if attempt == max_retries - 1:
+                raise
+            time.sleep((2 ** attempt) * 0.1 + random.uniform(0, 0.1))
+```
+
+Деталі retry-патерну з exponential backoff + jitter - у
+[`architecture/system_design.md`](../architecture/system_design.md) розділі
+"Робота в конкурентному середовищі".
+
+**Side effects і retry**
+
+Retry безпечний, поки транзакція торкалася лише бази. Якщо всередині
+транзакції викликали external service (payment provider, email, MQ) без
+idempotency key - повтор створить дублікати. Канонічний патерн:
+
+- всередині database transaction - лише зміни стану в БД;
+- external side effects - через Outbox Pattern після commit (див.
+  [`architecture/architecture_patterns.md`](../architecture/architecture_patterns.md));
+- усі external операції - ідемпотентні (з idempotency key).
 
 
 
