@@ -453,7 +453,7 @@ DO UPDATE SET
 
 
 
-### `TRUNCATE` vs `DELETE` [❄️1/100]
+### `TRUNCATE` vs `DELETE` [❄️2/100]
 
 *Summary*
 > `DELETE` видаляє рядки по одному за умовою `WHERE`, пише per-row записи в WAL, тригери
@@ -542,7 +542,7 @@ ROLLBACK;  -- table is back to its original contents
 
 
 
-### Що робить SELECT FOR UPDATE? [❄️3/100]
+### Що робить SELECT FOR UPDATE? [❄️4/100]
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
 що вибираються під час виконання запиту, щоб уникнути конкурентних змін даних.
