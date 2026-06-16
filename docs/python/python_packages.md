@@ -167,7 +167,7 @@ Flake8 має схожий на pylint основний функціонал.
 
 
 
-### SQLAlchemy
+### SQLAlchemy [❄️2/100]
 
 SQLAlchemy винесений у окремий файл - див.
 [`python_framework/sqlalchemy.md`](../python_framework/sqlalchemy.md): Core vs
@@ -176,7 +176,7 @@ ORM, Lazy/Eager loading, `Session` vs `sessionmaker`, connection pool парам
 
 
 
-### Celery
+### Celery [❄️1/100]
 
 **Celery** — це зручний інструмент для асинхронного виконання завдань у Python. 
 Він дозволяє виконувати довготривалі або ресурсозатратні операції у фоновому режимі, 
@@ -330,7 +330,7 @@ def fragile_task(self):
 
 
 
-### Що використовувати для логування помилок у Celery?
+### Що використовувати для логування помилок у Celery? [❄️1/100]
 
 *Summary*
 > Стандартний модуль `logging` через `celery.utils.log.get_task_logger(__name__)` 
@@ -378,7 +378,7 @@ sentry_sdk.init(
 
 
 
-### Як Celery вміє працювати з пріоритетними повідомленнями?
+### Як Celery вміє працювати з пріоритетними повідомленнями? [❄️1/100]
 
 *Summary*
 > Через параметр `priority` у `apply_async()` + черга, створена з `x-max-priority`.
@@ -417,7 +417,7 @@ app.conf.task_queues = [
 
 
 
-### Як зрозуміти, що таска виконається?
+### Як зрозуміти, що таска виконається? [❄️1/100]
 
 *Summary*
 > Жорсткої гарантії виконання немає - є гарантія доставки до брокера і механізми 

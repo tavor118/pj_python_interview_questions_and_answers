@@ -1,6 +1,6 @@
 ## DRF
 
-### Як працює Serializer в Django REST Framework
+### Як працює Serializer в Django REST Framework [❄️2/100]
 
 **Serializer** перетворює інформацію, що зберігається в базі даних і визначається 
 за допомогою моделей Django, в формат JSON для передачі через API.
@@ -170,7 +170,7 @@ class ExampleView(APIView):
 
 
 
-### ViewSets в DRF
+### ViewSets в DRF [❄️1/100]
 
 **ViewSets** у Django Rest Framework (DRF) — це компонент, що спрощує побудову REST API, 
 об’єднуючи логіку для стандартних CRUD-операцій (створення, читання, оновлення, видалення)
@@ -265,7 +265,7 @@ class ProductViewSet(ModelViewSet):
 
 
 
-### Django vs DRF
+### Django vs DRF [❄️1/100]
 
 *Summary*
 > Django - повноцінний веб-фреймворк (ORM, шаблони, форми, admin, auth, sessions,
@@ -348,7 +348,7 @@ REST_FRAMEWORK = {
 
 
 
-### Generic Views у DRF
+### Generic Views у DRF [❄️1/100]
 
 *Summary*
 > Generic Views - готові class-based views поверх `GenericAPIView`, кожен
@@ -426,7 +426,7 @@ urlpatterns = [
 
 
 
-### Mixins у DRF
+### Mixins у DRF [❄️1/100]
 
 *Summary*
 > `rest_framework.mixins` - п'ять класів, кожен реалізує одну CRUD-дію поверх
@@ -503,7 +503,7 @@ class OrderViewSet(
 
 
 
-### Документація OpenAPI: `drf-spectacular`, `drf-yasg`
+### Документація OpenAPI: `drf-spectacular`, `drf-yasg` [❄️1/100]
 
 *Summary*
 > DRF із коробки генерує мінімальну OpenAPI-схему (`SchemaView`), але для

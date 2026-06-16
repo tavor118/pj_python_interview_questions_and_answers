@@ -194,7 +194,7 @@ print(f"The Fibonacci number at position {n} is {result}.")
 
 
 
-### Декоратор для заміру часу виконання функції
+### Декоратор для заміру часу виконання функції [❄️1/100]
 
 ```python
 import functools

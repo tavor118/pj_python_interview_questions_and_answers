@@ -36,7 +36,7 @@
 
 
 
-### Django ORM
+### Django ORM [❄️2/100]
 
 **Django ORM (Object-Relational Mapping)** — це компонент Django,
 який дозволяє взаємодіяти з базою даних, використовуючи об'єктно-орієнтовані моделі,
@@ -177,7 +177,7 @@ products = Product.objects.annotate(
 
 
 
-### `QuerySet`
+### `QuerySet` [❄️1/100]
 
 *Summary*
 > **QuerySet** - набір об'єктів моделі, який представляє SQL-запит до БД у
@@ -253,7 +253,7 @@ for book in books:
 
 
 
-### `ModelManager`
+### `ModelManager` [❄️1/100]
 
 *Summary*
 > **ModelManager** - інтерфейс між моделлю і QuerySet'ом. Стандартний `objects` -
@@ -402,7 +402,7 @@ python manage.py migrate
 
 
 
-### Види наслідування моделей
+### Види наслідування моделей [❄️2/100]
 
 Існують три основні стилі успадкування
 
@@ -601,7 +601,7 @@ for book in books:
 ```
 
 
-### Різниця між `select_related` та `prefetch_related` 
+### Різниця між `select_related` та `prefetch_related` [❄️2/100]
 
 У Django, `select_related` та `prefetch_related` — це два методи, які використовуються
 для оптимізації запитів до бази даних з метою зменшення кількості виконаних запитів і 
@@ -639,7 +639,7 @@ for book in books:
 
 
 
-### `Subquery`, `OuterRef`, `annotate`
+### `Subquery`, `OuterRef`, `annotate` [❄️1/100]
 
 *Summary*
 > `Subquery` + `OuterRef` дозволяють вбудувати корельований підзапит у звичайний
@@ -762,7 +762,7 @@ with transaction.atomic():
 
 
 
-### Що таке сигнали? Навіщо вони потрібні? Назвіть основні.
+### Що таке сигнали? Навіщо вони потрібні? Назвіть основні. [❄️1/100]
 
 Сигнали - це події в екосистемі Django. За допомогою сигналів підсистеми сповіщають
 додаток про те, що сталося.
@@ -780,7 +780,7 @@ with transaction.atomic():
 
 
 
-### Request - Response lifecycle
+### Request - Response lifecycle [❄️2/100]
 
 У Django запит представлено як екземпляр класу `HttpRequest`. Об'єкт `HttpRequest` 
 містить інформацію про запит користувача - метод HTTP (наприклад, GET, POST),
@@ -838,7 +838,7 @@ Django Part
 
 
 
-### Що таке Middleware, для чого, як реалізується
+### Що таке Middleware, для чого, як реалізується [❄️2/100]
 
 **Middleware** - це проміжний шар, який реалізований як об'єкт, який обробляє вхідний
 запит або вихідну відповідь (як і view). Наприклад, він може додавати заголовки,
@@ -883,7 +883,7 @@ MIDDLEWARE = [
 
 
 
-### Основні Middleware
+### Основні Middleware [❄️2/100]
 
 - `SecurityMiddleware` - додає security-заголовки до відповіді: `Strict-Transport-Security` (HSTS) через `SECURE_HSTS_SECONDS`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`. Опційно робить редирект `HTTP → HTTPS` при `SECURE_SSL_REDIRECT = True`. Сам HTTPS-termination відбувається на рівні reverse proxy / web server (Nginx, ALB) - middleware лише примушує клієнта переключитися.
 - `SessionMiddleware` - дозволяє використовувати сесії, щоб зберігати інформацію між запитами. Він створює та зберігає сесійні файли та додає інформацію про сесію - додає до запиту об'єкт `session`.
@@ -943,7 +943,7 @@ RFC 2616 визначає POST, PUT і DELETE як "небезпечні".
 
 
 
-### Що таке Meta в класах Django і для чого потрібен
+### Що таке Meta в класах Django і для чого потрібен [❄️2/100]
 
 У Django, атрибут `Meta` в класах використовується для визначення додаткової інформації 
 (метадата) про клас моделі або серіалізатора.

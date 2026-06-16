@@ -1,6 +1,6 @@
 ## SQLAlchemy
 
-### SQLAlchemy: Core та ORM
+### SQLAlchemy: Core та ORM [❄️1/100]
 
 *Summary*
 > SQLAlchemy - бібліотека Python для роботи з реляційними базами даних. Має
@@ -99,7 +99,7 @@ Core.
 
 
 
-### Lazy vs Eager loading: стратегії завантаження relationship
+### Lazy vs Eager loading: стратегії завантаження relationship [❄️1/100]
 
 *Summary*
 > `relationship()` у SQLAlchemy за замовчуванням завантажується **ліниво** -
@@ -176,7 +176,7 @@ stmt = select(Post).options(
 
 
 
-### `Session` vs `sessionmaker`
+### `Session` vs `sessionmaker` [❄️1/100]
 
 *Summary*
 > `Session` - unit of work, що тримає identity map, трекає зміни і flush'ить
@@ -264,7 +264,7 @@ expire on commit.
 
 
 
-### Connection pool: `pool_size`, `max_overflow`, `pool_recycle`
+### Connection pool: `pool_size`, `max_overflow`, `pool_recycle` [❄️1/100]
 
 *Summary*
 > `Engine` за замовчуванням використовує `QueuePool` з `pool_size=5` і
@@ -350,7 +350,7 @@ session-scoped GUC).
 
 
 
-### Прогрів пула (pool warm-up)
+### Прогрів пула (pool warm-up) [❄️1/100]
 
 *Summary*
 > Прогрів пула - явне відкриття `pool_size` з'єднань до того, як прийде

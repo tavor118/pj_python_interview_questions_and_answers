@@ -289,7 +289,7 @@ class TaskResponse:
 
 
 
-### У чому різниця між стратегічним і тактичним рівнями DDD?
+### У чому різниця між стратегічним і тактичним рівнями DDD? [❄️1/100]
 
 *Summary*
 > Стратегічний рівень - про межі та мову (domain, subdomain, Bounded Context, Ubiquitous Language); 
@@ -356,7 +356,7 @@ class TaskResponse:
 
 
 
-### Що таке Bounded Context і як він пов'язаний з Ubiquitous Language?
+### Що таке Bounded Context і як він пов'язаний з Ubiquitous Language? [❄️1/100]
 
 *Summary*
 > Bounded Context - це зона узгодженості Ubiquitous Language: межа, всередині якої кожен термін має одне чітке значення для бізнесу й коду.
@@ -474,7 +474,7 @@ class Customer:
 
 
 
-### Anti-Corruption Layer (ACL)
+### Anti-Corruption Layer (ACL) [❄️1/100]
 
 *Summary*
 > ACL - це шар-фасад на стороні споживача, який перекладає зовнішню модель у внутрішню, 
@@ -511,7 +511,7 @@ class BillingACL:
 - Потрібно адаптувати кілька різних upstream-постачальників до однієї внутрішньої моделі.
 
 
-### Open Host Service (OHS) і Published Language
+### Open Host Service (OHS) і Published Language [❄️1/100]
 
 *Summary*
 > У Еванса це дві парні, але окремі речі: **OHS** - сам сервіс/протокол, який постачальник 
@@ -552,7 +552,7 @@ class OrderPublisher:
 - Внутрішня модель надто багата чи нестабільна, щоб віддавати її "як є".
 
 
-### Як обрати: ACL чи OHS?
+### Як обрати: ACL чи OHS? [❄️1/100]
 
 *Summary*
 > Питання не "який кращий", а "хто кого змушений підлаштовуватися": хто абсорбує зміни 

@@ -21,7 +21,7 @@ SELECT * FROM users WHERE age > 18 ORDER BY name ASC;
 
 
 
-### Оператори `SELECT`, `INSERT`, `UPDATE` та `DELETE`
+### Оператори `SELECT`, `INSERT`, `UPDATE` та `DELETE` [❄️1/100]
 
 Призначення операторів
 
@@ -83,7 +83,7 @@ DELETE FROM table_name WHERE condition
 
 
 
-### PK - Primary Key, FK -Foreign Key, UNIQUE - Unique constraint
+### PK - Primary Key, FK -Foreign Key, UNIQUE - Unique constraint [❄️1/100]
 
 **Primary Key (Первинний Ключ)** - це унікальний ідентифікатор (стовпець або комбінація 
 стовпців), який визначає конкретний запис в базі даних.
@@ -128,7 +128,7 @@ CREATE TABLE users (
 
 
 
-### Оператор та види `JOIN`
+### Оператор та види `JOIN` [❄️1/100]
 
 Оператор `JOIN` в SQL використовується для об'єднання даних з двох або більше таблиць
 на основі визначених умов.
@@ -453,7 +453,7 @@ DO UPDATE SET
 
 
 
-### `TRUNCATE` vs `DELETE`
+### `TRUNCATE` vs `DELETE` [❄️1/100]
 
 *Summary*
 > `DELETE` видаляє рядки по одному за умовою `WHERE`, пише per-row записи в WAL, тригери
@@ -542,7 +542,7 @@ ROLLBACK;  -- table is back to its original contents
 
 
 
-### Що робить SELECT FOR UPDATE?
+### Що робить SELECT FOR UPDATE? [❄️3/100]
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
 що вибираються під час виконання запиту, щоб уникнути конкурентних змін даних.
@@ -772,7 +772,7 @@ user = User.objects.filter(id=user_input).first()  # ORM escapes input automatic
 - Логування та моніторинг запитів допоможуть вчасно виявити підозрілу активність.
 
 
-### View, Materialised View
+### View, Materialised View [❄️1/100]
 
 У SQL **View** (представлення) та **Materialized View** (матеріалізоване представлення) — 
 це способи роботи з даними, що полегшують доступ до складних запитів
@@ -821,7 +821,7 @@ SELECT * FROM monthly_sales; -- Query Materialized View
 
 
 
-### `EXPLAIN` та `EXPLAIN ANALYZE`
+### `EXPLAIN` та `EXPLAIN ANALYZE` [❄️1/100]
 
 `EXPLAIN` - це команда, яка надає інформацію про план виконання запиту.
 Вона показує, як база даних планує виконати запит, включаючи індекси,
@@ -853,7 +853,7 @@ Seq Scan on employees (cost=0.00..12.50 rows=3 width=100)
 
 
 
-### PostgreSQL Row-Level Security
+### PostgreSQL Row-Level Security [❄️1/100]
 
 *Summary*
 > Row-Level Security (RLS) - вбудований у Postgres механізм фільтрації рядків
@@ -983,7 +983,7 @@ PostgreSQL](https://www.crunchydata.com/blog/row-level-security-for-tenants-in-p
 
 
 
-### `SET LOCAL` vs `SET`: contamination з'єднання у pool
+### `SET LOCAL` vs `SET`: contamination з'єднання у pool [❄️1/100]
 
 *Summary*
 > `SET LOCAL` встановлює GUC лише до кінця поточної транзакції; `SET` (без
