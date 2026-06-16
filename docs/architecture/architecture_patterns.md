@@ -699,6 +699,25 @@ Lua-варіанти наведено у файлі [`infrastructure/database.md
   limit на рівні infrastructure перед application'ом; масштабує без коду в
   додатку.
 
+**Двошарова модель: infrastructure + application**
+
+У production rate limit зазвичай ставлять на обох рівнях, бо вони вирішують
+різні задачі:
+
+- **Infrastructure-рівень** (Nginx `limit_req`, Envoy, API Gateway, CDN) -
+  глобальне обмеження за IP/токеном перед тим, як трафік досягне застосунку.
+  Захищає від DDoS і retry-storm'ів: пакет із 21-го запиту за секунду
+  відкидається ще на edge, не витрачаючи CPU/конект-пули application'а.
+- **Application-рівень** (SlowAPI, кастомний middleware, in-handler перевірка) -
+  обмеження за бізнес-правилами, яких infrastructure не знає: per-tariff квоти
+  ("free tier - 5 reports/min, paid - 100"), per-resource-cost ліміти ("не
+  більше 3 одночасних відео на користувача"), per-feature throttling. Логіка
+  потребує контексту користувача, плану, стану БД.
+
+Infrastructure-шар без application-шару пропускає легітимні бізнес-порушення
+(користувач у free-tier лізе за межі плану); application-шар без
+infrastructure-шару витрачає ресурси на обробку атакувального трафіку.
+
 
 
 ### Як зрозуміти, що застосунок зламався?
