@@ -1,6 +1,6 @@
 ## DDD
 
-### Основні принципи DDD [❄️1/100]
+### Основні принципи DDD [❄️3/100]
 
 **Domain-Driven Design (DDD)** — це підхід до проєктування складних програмних систем, 
 спрямований на чітке вираження бізнес-логіки та її ізоляцію від технічних деталей. 
@@ -56,7 +56,7 @@ DDD складається з двох основних рівнів:
 
 
 
-### Домен
+### Домен [❄️2/100]
 
 Доменна модель — це сукупність структур, які виражають бізнес-правила та поведінку 
 предметної області.
@@ -289,7 +289,236 @@ class TaskResponse:
 
 
 
-### У чому різниця між стратегічним і тактичним рівнями DDD? [❄️1/100]
+### Rich vs Anemic Domain Model [❄️1/100]
+
+*Summary*
+> **Rich Model** - доменна модель, де бізнес-логіка живе всередині сутностей
+> (`order.cancel()`, `account.withdraw(amount)`). **Anemic Model** - сутність
+> має лише дані (поля + getter/setter), а вся бізнес-логіка винесена в
+> сервіси (`OrderService.cancel(order)`). Anemic Model описаний Мартіном
+> Фаулером як **антипатерн** для DDD: модель перетворюється на типізований
+> dict, а Service Layer стає transaction script - DDD з нього зникає.
+
+**Anemic Model: симптоми**
+
+Клас з лише полями і `getX()`/`setX()`-методами, без жодної бізнес-операції.
+Усю логіку виконує "сервіс":
+
+```python
+# Anemic — anti-pattern in DDD context
+class Order:
+    def __init__(self, id, customer_id, status, items):
+        self.id = id
+        self.customer_id = customer_id
+        self.status = status
+        self.items = items
+    # ... 20+ getters/setters, no behavior
+
+
+class OrderService:
+    def cancel(self, order: Order, reason: str) -> None:
+        if order.status == "completed":
+            raise ValueError("Cannot cancel completed order")
+        if order.status == "cancelled":
+            raise ValueError("Already cancelled")
+        order.status = "cancelled"
+        order.cancellation_reason = reason
+        # ... emit DomainEvent, etc.
+
+    def add_item(self, order: Order, item: Item) -> None:
+        if order.status != "draft":
+            raise ValueError("Cannot modify non-draft order")
+        order.items.append(item)
+```
+
+Проблеми:
+- **Бізнес-правила розпорошені.** `OrderService`, `OrderValidator`, `OrderHelper`
+  - усі знають правила Order. Зміна правила вимагає правок у кількох місцях.
+- **Інваріанти не захищені.** Будь-хто може `order.status = "completed"`
+  напряму, обійшовши `OrderService.complete()`. Encapsulation зламана.
+- **Однакова логіка дублюється.** Те саме правило про "cannot cancel
+  completed" з'являється у двох сервісах і поступово розходиться.
+
+**Rich Model: бізнес-логіка у сутності**
+
+```python
+class Order:  # Rich Model — invariants enforced
+    def __init__(self, id, customer_id, items):
+        self._id = id
+        self._customer_id = customer_id
+        self._status = "draft"
+        self._items = list(items)
+        self._events: list[DomainEvent] = []
+
+    def cancel(self, reason: str) -> None:
+        if self._status == "completed":
+            raise OrderCannotBeCancelled("Completed order cannot be cancelled")
+        if self._status == "cancelled":
+            raise OrderCannotBeCancelled("Already cancelled")
+        self._status = "cancelled"
+        self._events.append(OrderCancelled(self._id, reason))
+
+    def add_item(self, item: Item) -> None:
+        if self._status != "draft":
+            raise OrderImmutable("Cannot modify non-draft order")
+        self._items.append(item)
+```
+
+Бізнес-операції - методи з осмисленими іменами (`cancel`, `add_item`,
+`apply_discount`), не `setStatus`/`setItems`. Інваріанти перевіряються
+всередині методу - неможливо порушити стан, обійшовши контракт.
+
+**Коли Anemic виправдане**
+
+- **DTO/Read Model**: об'єкти для транспорту або відображення (response_model
+  у FastAPI, ViewModel у UI) природно anemic - вони не модель домену, лише
+  носій даних. Дивіться [Допоміжні елементи DDD](#допоміжні-елементи-ddd).
+- **CRUD-сервіс без бізнес-інваріантів**: проста таблиця "tags", де
+  єдина операція - додати/видалити - не потребує rich model. У такій частині
+  системи DDD не застосовується взагалі.
+
+**Зв'язок з Application Service**
+
+Application service не зникає у Rich Model - він координує: дістає aggregate
+з репозиторію, викликає бізнес-метод, зберігає назад, публікує події.
+Просто **не містить** бізнес-правил - вони у сутності.
+
+```python
+class CancelOrderHandler:
+    def __init__(self, repo: OrderRepository):
+        self._repo = repo
+
+    def execute(self, order_id: str, reason: str) -> None:
+        order = self._repo.get(order_id)
+        order.cancel(reason)  # business rules live inside Order
+        self._repo.save(order)
+```
+
+*Links*
+
+- [Martin Fowler: AnemicDomainModel](https://martinfowler.com/bliki/AnemicDomainModel.html) - канонічна стаття-критика
+- [Vaughn Vernon: Implementing DDD (book)](https://www.amazon.com/Implementing-Domain-Driven-Design-Vaughn-Vernon/dp/0321834577) - детально про Rich Aggregate
+
+
+
+### Repository vs DAO [❄️1/100]
+
+*Summary*
+> **Repository** і **DAO** часто плутають, але це два різні патерни.
+> Repository - доменна абстракція, що **імітує колекцію** aggregate'ів:
+> `orders.add(order)`, `orders.get(id)`. DAO (Data Access Object) -
+> інфраструктурний примітив над таблицею: `OrderDAO.insert_row()`,
+> `OrderDAO.update_status()`. Repository інкапсулює DAO, плюс ORM,
+> плюс кеш, але говорить **мовою домену**, а не SQL.
+
+**DAO: data access primitive**
+
+DAO відображає схему БД на CRUD-методи. Один-до-одного з таблицею.
+
+```python
+class OrderDAO:
+    def __init__(self, db: Connection):
+        self._db = db
+
+    def insert(self, row: dict) -> int:
+        return self._db.execute("INSERT INTO orders (...) VALUES (...)", row).lastrowid
+
+    def update_status(self, order_id: int, status: str) -> None:
+        self._db.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+
+    def find_by_customer(self, customer_id: int) -> list[dict]:
+        return self._db.execute("SELECT * FROM orders WHERE customer_id = ?", (customer_id,)).fetchall()
+```
+
+API DAO - набір SQL-операцій, повертає `dict` або `Row`. Це **не модель
+домену** - тільки технічна доставка даних.
+
+**Repository: domain collection**
+
+Repository працює з aggregate'ами (домен-об'єктами), не з рядками.
+"Виглядає" як in-memory колекція - `add`, `remove`, `get` - але насправді
+звертається до сховища.
+
+```python
+from abc import ABC, abstractmethod
+from domain.orders import Order
+
+
+class OrderRepository(ABC):
+    @abstractmethod
+    def add(self, order: Order) -> None: ...
+
+    @abstractmethod
+    def get(self, order_id: OrderId) -> Order: ...
+
+    @abstractmethod
+    def find_open_for_customer(self, customer_id: CustomerId) -> list[Order]: ...
+
+
+class SqlOrderRepository(OrderRepository):
+    def __init__(self, dao: OrderDAO, items_dao: OrderItemDAO):
+        self._dao = dao
+        self._items_dao = items_dao
+
+    def add(self, order: Order) -> None:
+        row = order.to_persistence()
+        order_id = self._dao.insert(row)
+        for item in order.items:
+            self._items_dao.insert({**item.to_persistence(), "order_id": order_id})
+
+    def get(self, order_id: OrderId) -> Order:
+        order_row = self._dao.find(order_id)
+        item_rows = self._items_dao.find_by_order(order_id)
+        return Order.from_persistence(order_row, item_rows)  # reconstitute aggregate
+```
+
+Repository:
+- **Одна репо на aggregate root**, не на таблицю. Order з 5 пов'язаними
+  таблицями (`orders`, `order_items`, `order_addresses`, ...) - одна
+  `OrderRepository`, не п'ять.
+- **Реконструює aggregate** з даних (load + items + invariants).
+- **Зберігає aggregate цілком** як один transactional act.
+- **Говорить мовою домену**: `find_open_for_customer` (бізнес-запит), не
+  `select_where_status_in`.
+
+**Ключові відмінності**
+
+| Властивість | DAO | Repository |
+| --- | --- | --- |
+| Рівень | Інфраструктура | Доменний шар |
+| Одиниця | Рядок таблиці / `dict` | Aggregate |
+| API | CRUD-методи з SQL-семантикою | Колекціє-подібний (`add`, `get`, `find`) |
+| Скільки на сутність | Одне DAO на таблицю | Одне Repository на aggregate root |
+| Знає про SQL/ORM? | Так, прямо | Інкапсулює DAO/ORM усередині |
+| Інтерфейс | Конкретний клас | Абстракція (ABC), мокується у тестах |
+
+**Чому плутання шкодить**
+
+Якщо репозиторій по факту повертає `dict` чи ORM-моделі з 30 полями і
+методом `.save()` - це DAO з іменем "Repository". Доменний шар тоді знає
+про ORM-деталі (lazy loading, session, mapping), а Aggregate стає
+двійником ORM-моделі замість самостійної доменної структури.
+
+Симптом: у domain-коді з'являються `if order.payment is None: order.payment_id`
+(перевірка lazy-load). Це означає, що Repository не реконструював
+повний Aggregate - повернув proxy.
+
+**Коли DAO достатньо**
+
+Якщо застосунок - простий CRUD без бізнес-інваріантів і без DDD-aggregate'ів,
+вводити Repository поверх DAO - оверкіл. Це повертає до питання
+[Light DDD як анти-патерн](#що-таке-light-ddd-і-чому-це-анти-патерн):
+тактичні патерни без потреби додають складність.
+
+*Links*
+
+- [Martin Fowler: PoEAA - Repository](https://martinfowler.com/eaaCatalog/repository.html) - канонічний опис патерну
+- [Vaughn Vernon: Implementing DDD - Repositories chapter](https://www.amazon.com/Implementing-Domain-Driven-Design-Vaughn-Vernon/dp/0321834577) - збереження aggregate'ів
+- [Microsoft docs: Designing the infrastructure persistence layer (DDD)](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/infrastructure-persistence-layer-design)
+
+
+
+### У чому різниця між стратегічним і тактичним рівнями DDD? [❄️2/100]
 
 *Summary*
 > Стратегічний рівень - про межі та мову (domain, subdomain, Bounded Context, Ubiquitous Language); 
@@ -317,7 +546,7 @@ class TaskResponse:
 
 
 
-### Що таке Light DDD і чому це анти-патерн?
+### Що таке Light DDD і чому це анти-патерн? [❄️1/100]
 
 *Summary*
 > Light DDD - застосування лише тактичних патернів (Aggregate, Entity, VO, Repository, Factory) без стратегічного аналізу. Код виглядає як DDD, але не вирішує головної задачі - керування складністю та узгодження з бізнесом.
@@ -356,7 +585,168 @@ class TaskResponse:
 
 
 
-### Що таке Bounded Context і як він пов'язаний з Ubiquitous Language? [❄️2/100]
+### Коли застосовувати DDD [❄️1/100]
+
+*Summary*
+> DDD - інвестиція у складність моделювання, не у швидкий вихід на ринок.
+> Виправдана на доменах з нетривіальною бізнес-логікою (Healthcare,
+> Fintech, Insurance, Logistics, Education) і при тісній співпраці з
+> доменними експертами. **Не виправдана** для CRUD-додатків, простих
+> інтернет-магазинів, MVP-стартапів - накладні витрати DDD там вб'ють
+> time-to-market без компенсації у вигляді розв'язку складності.
+
+**Коли DDD дає цінність**
+
+- **Складний домен з нетривіальними правилами.** Healthcare (правила
+  вакцинації за вагою/історією), Fintech (compliance, anti-fraud,
+  багаторівневі account-структури), Insurance (актуарні розрахунки),
+  Logistics (маршрутизація, тарифи). Якщо логіка непомітно складна -
+  domain experts мають бути у команді, і DDD дає спільну мову.
+- **Великі enterprise-системи з багатьма subdomains.** Маркетплейс із
+  каталогом + замовлення + логістика + білінг + аналітика - кожен
+  bounded context з власною мовою. DDD ділить мегасистему на керовані
+  частини.
+- **Legacy refactoring.** Стара система з домішаною бізнес-логікою у
+  контролерах/скриптах добре сприймає DDD-аналіз: воркшопи з доменими
+  експертами виявляють процеси, які вже працюють, формалізують їх,
+  допомагають реорганізувати код без зміни поведінки.
+- **Ріст команди + bus factor.** Розподіл коду за bounded context'ами
+  означає чіткий "ownership-границь" - команда billing володіє своїм
+  контекстом, нова людина у команді onboardиться у конкретну мову.
+- **Тривалий життєвий цикл.** Якщо система буде еволюціонувати 5-10 років -
+  початкова інвестиція в DDD окупається. Якщо це разовий MVP на півроку - ні.
+
+**Коли DDD - оверкіл**
+
+- **Простий CRUD без бізнес-правил.** Інтернет-магазин з товарами,
+  кошиком, оплатою через готовий gateway - бізнес-правила тривіальні
+  (`if quantity > stock: error`), не потрібна доменна модель.
+- **MVP / стартап на стадії product-market fit.** Time-to-market критичний,
+  domain ще не сформований - кодова база міняється радикально щотижня.
+  DDD-моделювання тут перетворюється на витрачені сесії, бо моделі
+  застаріють раніше, ніж досягнуть production.
+- **Команда без досвіду DDD.** Перший проєкт - багато помилок моделювання,
+  тактичні патерни без стратегії = Light DDD антипатерн (див.
+  [Що таке Light DDD](#що-таке-light-ddd-і-чому-це-анти-патерн)).
+- **Немає доменних експертів.** DDD працює лише з людьми, які глибоко
+  знають домен і доступні для тривалих воркшопів. Без них Ubiquitous
+  Language ніколи не з'явиться.
+
+**DDD ≠ Microservices**
+
+Поширена омана - "1 Bounded Context = 1 мікросервіс". Це **не так**.
+DDD - design approach до моделювання домену; мікросервіси - архітектурний
+стиль деплою. Реальні комбінації:
+
+- **Моноліт з модулями за bounded contexts** - найпростіша валідна
+  форма. Часто кращий старт, ніж мікросервіси.
+- **Один мікросервіс містить кілька bounded contexts** - якщо
+  contexts маленькі і деплояться разом.
+- **Один bounded context розщеплений на кілька мікросервісів** - якщо
+  компоненти контексту мають різні характеристики масштабування або
+  команд-власників.
+
+Розбиття на мікросервіси - окреме архітектурне рішення, базоване на:
+- Нефункціональних вимогах (масштабованість, ізоляція збоїв, частота розгортання).
+- Структурі команд (Conway's Law).
+- Operational complexity (мережа, observability, distributed transactions).
+
+Bounded Context дає **межі модулів**; мікросервіси - **межі деплою**.
+Вони можуть співпадати, але не зобов'язані.
+
+**DDD у Legacy**
+
+Окремий поширений сценарій: успадкована система з 5-15+ років роботи,
+де бізнес-логіка розпорошена. Як починати:
+
+1. **Воркшопи з доменими експертами** - які процеси ще працюють, які
+   застаріли, що насправді приносить гроші. Це інформація, яка часто
+   зникла з документації.
+2. **Strangler Fig pattern** - нові bounded contexts створюються
+   поряд із legacy, поступово перехоплюючи запити (через проксі/router)
+   до повного заміщення.
+3. **Anti-Corruption Layer** ([деталі](#anti-corruption-layer-acl)) -
+   ізолює нову доменну модель від legacy-схеми; жоден legacy-концепт
+   не "тече" у новий код.
+
+*Links*
+
+- [Eric Evans: DDD Reference (PDF)](https://www.domainlanguage.com/wp-content/uploads/2016/05/DDD_Reference_2015-03.pdf) - оригінальне довідкове резюме
+- [Vaughn Vernon: Implementing Domain-Driven Design](https://www.amazon.com/Implementing-Domain-Driven-Design-Vaughn-Vernon/dp/0321834577) - практичний посібник
+- [Martin Fowler: BoundedContext](https://martinfowler.com/bliki/BoundedContext.html) - канонічна замітка
+
+
+
+### Event Storming [❄️1/100]
+
+*Summary*
+> **Event Storming** - воркшоп-технологія для дослідження домену, придумана
+> Alberto Brandolini (~2013). Команда з доменими експертами і розробниками
+> біля великої дошки (фізичної або Miro) розкладає **події домену**
+> хронологічно за допомогою стікерів. За кілька годин видно процеси,
+> кандидати на bounded context, "гарячі точки" (hotspots) і прогалини у
+> розумінні. Канонічний інструмент стратегічного DDD-discovery.
+
+**Три рівні Event Storming**
+
+1. **Big Picture** - усе підприємство за 3-4 години. Шукають **доменні
+   події** ("OrderPlaced", "PaymentReceived", "ShipmentDispatched") і
+   викладають хронологічно. Outcome: верхньорівнева мапа процесів,
+   гарячі точки, кандидати на bounded contexts.
+2. **Process Modeling** - детальний розбір одного процесу: команди
+   (`PlaceOrder`), агенти (`Customer`, `WarehouseStaff`), політики
+   (`when payment received → reserve stock`).
+3. **Software Design** - переходить у тактичне моделювання: aggregates,
+   read models, external systems. Зазвичай за участю більшого
+   технічного складу.
+
+**Кольорова конвенція стікерів**
+
+Brandolini'євська канонічна палітра:
+
+- 🟧 **Помаранчевий** - доменна подія (`OrderPlaced`, минулий час).
+- 🟦 **Блакитний** - команда (`PlaceOrder`, наказова форма).
+- 🟨 **Жовтий** - актор (хто ініціює команду).
+- 🟪 **Фіолетовий** - політика/правило ("щоразу коли X → виконати Y").
+- 🟥 **Червоний** - гаряча точка (hotspot): невідомість, конфлікт,
+  неперевершене питання, до якого треба повернутися.
+- 🟩 **Зелений** - read model / view (що користувач бачить, щоб
+  прийняти рішення).
+
+**Коли Event Storming доречний**
+
+- Початок нового проєкту з нетривіальним доменом.
+- Onboarding нової команди на існуючу систему (legacy discovery).
+- Інтеграція 2-3 систем після злиття компаній.
+- Виявлення прогалин розуміння у вже працюючій системі.
+
+**Коли він зайвий**
+
+- Простий CRUD без процесних бізнес-правил.
+- Команда без досвідченого фасилітатора (як у Scrum майстер) - сесія
+  розповзеться у обговорення без структури.
+- Доменні експерти недоступні - без них воркшоп безглуздий.
+- Часовий тиск, де sequence-діаграми + Miro board дають 80% результату
+  за 20% часу. Це не зменшує цінність повноцінного Event Storming -
+  просто визнає, що він не єдина опція discovery.
+
+**Хто фасилітує**
+
+Фасилітатор - окрема роль (як scrum-майстер у scrum'і). Тримає фокус,
+не дає сесії скочуватися у дискусії про деталі реалізації. Часто
+це досвідчений архітектор/консультант, рідше - product manager. Нова
+команда без фасилітатора з досвідом часто отримує "лоп" одних і тих
+же дискусій.
+
+*Links*
+
+- [Alberto Brandolini: Introducing EventStorming (book)](https://www.eventstorming.com/book/) - канонічна книга
+- [eventstorming.com](https://www.eventstorming.com/) - офіційний сайт з прикладами
+- [Martin Fowler: EventStorming](https://martinfowler.com/articles/event-storming.html) - короткий огляд
+
+
+
+### Що таке Bounded Context і як він пов'язаний з Ubiquitous Language? [❄️4/100]
 
 *Summary*
 > Bounded Context - це зона узгодженості Ubiquitous Language: межа, всередині якої кожен термін має одне чітке значення для бізнесу й коду.
@@ -474,7 +864,7 @@ class Customer:
 
 
 
-### Anti-Corruption Layer (ACL) [❄️1/100]
+### Anti-Corruption Layer (ACL) [❄️2/100]
 
 *Summary*
 > ACL - це шар-фасад на стороні споживача, який перекладає зовнішню модель у внутрішню, 
@@ -511,7 +901,7 @@ class BillingACL:
 - Потрібно адаптувати кілька різних upstream-постачальників до однієї внутрішньої моделі.
 
 
-### Open Host Service (OHS) і Published Language [❄️1/100]
+### Open Host Service (OHS) і Published Language [❄️2/100]
 
 *Summary*
 > У Еванса це дві парні, але окремі речі: **OHS** - сам сервіс/протокол, який постачальник 
@@ -568,3 +958,102 @@ class OrderPublisher:
 
 Це два з кількох патернів Context Mapping за Evans (поряд із Shared Kernel, Customer/Supplier, 
 Conformist, Partnership) - кожен описує іншу політику відносин між командами та контекстами.
+
+
+
+### Інші Context Mapping патерни: Shared Kernel, Customer/Supplier, Conformist, Partnership [❄️1/100]
+
+*Summary*
+> Окрім ACL/OHS, Evans описав ще чотири канонічні патерни Context Mapping,
+> які формалізують **організаційні і кодові відносини** між командами,
+> що володіють різними bounded contexts. Кожен патерн - кодифікований
+> компроміс між автономією, узгодженістю і координацією.
+
+**Shared Kernel**
+
+Дві команди погоджуються розділити **спільну** малу підмодель (kernel) -
+зазвичай ядро доменних типів (`Money`, `Address`, `CustomerId`), у яких
+зміна вимагає погодження обох сторін.
+
+```python
+# shared_kernel/money.py — imported by Billing AND Sales
+class Money:
+    def __init__(self, amount: Decimal, currency: str): ...
+    def __add__(self, other: "Money") -> "Money": ...
+```
+
+- **Переваги:** не дублюється фундаментальна логіка, обидві команди
+  використовують одні й ті самі типи напряму, без перетворень.
+- **Недоліки:** жорстка зв'язаність - зміна Kernel вимагає узгодженого
+  релізу обох команд; еволюція гальмується.
+- **Коли:** дві команди близькі організаційно (одна функціональна група),
+  високий рівень довіри, малий розмір kernel (~10-20% коду).
+
+**Customer/Supplier**
+
+Чітко визначена асиметрія: **supplier** (upstream) команда орієнтує
+план розвитку частково на потреби **customer** (downstream) команд.
+Customer впливає на пріоритети supplier'а через формальний процес
+(запити, SLA, governance).
+
+- **Приклад:** платформова команда (auth, notifications, payments) -
+  supplier; продуктові команди - customers. Customer'и можуть впливати
+  на API supplier'а, але не міняють його напряму.
+- **Переваги:** баланс - supplier зберігає автономію, customer впливає
+  на пріоритети.
+- **Недоліки:** вимагає формального процесу пріоритезації; без нього
+  supplier ігнорує customer.
+- **Коли:** платформові/інфраструктурні команди обслуговують кілька
+  продуктових.
+
+**Conformist**
+
+Downstream-команда **повністю приймає** модель upstream'а як свою, без
+ACL і без переговорів. Жодного перекладу - просто використати ту мову,
+яку дає upstream.
+
+- **Приклад:** інтеграція з зовнішнім SaaS (Stripe, Salesforce, Shopify) -
+  ви приймаєте їхні концепти як є, бо у вас нуль впливу на їхній API.
+- **Переваги:** мінімум коду, нуль витрат на підтримку перекладу.
+- **Недоліки:** ваш домен забруднюється чужими концептами; зміна upstream =
+  зміна вашого коду.
+- **Коли:** upstream стабільний, "чужий" словник прийнятний у вашому
+  домені, ACL не виправданий.
+- **Контраст з ACL:** ACL = "я хочу свою модель і перекладаю"; Conformist =
+  "беру чужу модель як є".
+
+**Partnership**
+
+Дві команди визнають взаємозалежність і працюють як один колектив:
+координують цикли релізів, спільно еволюціонують контракти, не
+вибудовують перекладних шарів між собою.
+
+- **Приклад:** два сервіси, що разом дають єдину бізнес-функцію
+  (Booking + Pricing завжди ходять разом для рендера ціни).
+- **Переваги:** немає накладних витрат формальних контрактів - просто
+  разом планують реліз.
+- **Недоліки:** масштабується лише до невеликої кількості команд; пара
+  partnership = два team-meeting'и/тиждень, шість partnerships = непідйомно.
+- **Коли:** малі команди з частою взаємодією, недоцільність формальних API.
+
+**Зведення: вибір патерну**
+
+| Патерн | Хто адаптується | Перекладач | Coordination | Коли застосовувати |
+| --- | --- | --- | --- | --- |
+| **Shared Kernel** | Обидві сторони (до Kernel) | Немає | Висока | Спільні фундаментальні типи |
+| **Customer/Supplier** | Supplier учитавши customer | Опціональний | Помірна (через план розвитку) | Платформа vs продукти |
+| **Conformist** | Downstream | Немає | Низька | Стабільний зовнішній SaaS |
+| **Partnership** | Обидві сторони | Немає | Дуже висока | Малі команди з тісною взаємодією |
+| **ACL** ([↑](#anti-corruption-layer-acl)) | Downstream | Так, у downstream | Низька | Захист доменного ядра від upstream |
+| **OHS** ([↑](#open-host-service-ohs-і-published-language)) | Upstream (готує contract) | Так, у upstream | Висока (для контракту) | Платформа для багатьох споживачів |
+
+На практиці патерни **комбінуються**: команда може бути Customer для
+auth-platform і одночасно Conformist для Stripe, плюс мати Shared Kernel
+з сусідньою командою. Context Map - візуалізація цих відносин по всій
+системі.
+
+*Links*
+
+- [Eric Evans: Domain-Driven Design (Chapter 14)](https://www.amazon.com/Domain-Driven-Design-Tackling-Complexity-Software/dp/0321125215) - оригінальна типологія
+- [DDD Crew: Context Mapping](https://github.com/ddd-crew/context-mapping) - сучасний practical-guide зі схемами
+- [Martin Fowler: BoundedContext](https://martinfowler.com/bliki/BoundedContext.html)
