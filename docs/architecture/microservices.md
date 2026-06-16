@@ -1,6 +1,6 @@
 ## Microservices
 
-### Моноліт
+### Моноліт [❄️1/100]
 
 **Моноліт** — це архітектурний підхід до розробки програмного забезпечення, 
 в якому вся функціональність додатку зосереджена в одній єдиній кодовій базі 
@@ -38,7 +38,7 @@
 
 
 
-### Microservices - Мікросервіси
+### Microservices - Мікросервіси [❄️1/100]
 
 **Мікросервіси** — це архітектурний стиль, який передбачає розбиття програми на набір 
 незалежних компонентів (сервісів), кожен з яких відповідає за окрему бізнес-функцію 
@@ -71,7 +71,7 @@
 
 
 
-### Моноліт vs Мікросервіси
+### Моноліт vs Мікросервіси [❄️1/100]
 
 *Summary*
 > Моноліт підходить для простих рішень і швидкого старту, тоді як мікросервіси необхідні 
@@ -141,7 +141,7 @@
 
 
 
-### API Gateway [❄️2/100]
+### API Gateway [❄️3/100]
 
 *Summary*
 > API Gateway - єдина точка входу для зовнішніх клієнтів у систему мікросервісів.
@@ -196,6 +196,104 @@
 Gateway обробляє трафік **north-south** (зовнішній клієнт ↔ система). Sidecar і Service
 Mesh обробляють трафік **east-west** (сервіс ↔ сервіс всередині системи). Це різні
 шари, які доповнюють одне одного, а не замінюють.
+
+
+
+### Service Discovery [❄️1/100]
+
+*Summary*
+> Service Discovery - механізм, який дозволяє сервісам знаходити одне одного у
+> динамічному оточенні, де інстанси постійно зʼявляються (auto-scaling),
+> переміщуються (rolling deploy) і зникають (crash, K8s reschedule). Без
+> Discovery hard-coded IP-адреси перестають працювати першого ж дня. Дві
+> основні моделі - **client-side** (клієнт сам опитує реєстр і обирає інстанс)
+> і **server-side** (інфраструктурний шар - API Gateway, Service Mesh, K8s
+> Service - робить це за клієнта).
+
+**Проблема, яку розв'язує**
+
+У монолітній системі компоненти "знаходять" одне одного через виклики функцій
+у тому ж процесі. У мікросервісах виклик "клієнт → сервіс orders" вимагає
+IP-адреси і порту. Якщо `orders` має 5 інстансів, які можуть зникнути і
+зʼявитись будь-якої миті, hard-coded конфіг не підходить.
+
+Service Discovery - dynamic name-resolution для сервісів: за іменем
+(`orders.prod.local`) повертає актуальний список здорових ендпоінтів.
+
+**Client-side discovery**
+
+Клієнт запитує реєстр (`Service Registry`) і отримує список інстансів,
+обирає один (load balance) і робить запит напряму.
+
+```
+[client] → [service registry] → list of orders instances
+[client] → directly to orders-instance-3:8080
+```
+
+Реалізації:
+
+- **Netflix Eureka** - історично канонічна для Spring/Java; REST API, heartbeat
+  для liveness, dropped інстанси через ~30s без heartbeat'у.
+- **HashiCorp Consul** - крім registry дає health checks, KV store, DNS
+  interface (можна запитувати сервіси як звичайний DNS).
+- **etcd** / **ZooKeeper** - low-level KV-сховища, на яких будують registry
+  (Kubernetes сам використовує etcd для service-discovery).
+
+Переваги: клієнт контролює load-balancing (наприклад, sticky session,
+geographic affinity), один мережевий хоп.
+Недоліки: кожен клієнт мусить мати logic discovery (бібліотека на кожній
+мові), складніше міняти стратегію без redeploy клієнтів.
+
+**Server-side discovery**
+
+Клієнт робить запит на стабільну точку (API Gateway, Service Mesh sidecar,
+K8s Service), а вона сама знає, куди розподілити.
+
+```
+[client] → [api gateway / k8s service] → orders-instance-3
+```
+
+Реалізації:
+
+- **Kubernetes Service** - найпоширеніша сучасна модель: `kube-proxy` робить
+  iptables/eBPF-правила, які перенаправляють трафік на здорові поди. Клієнт
+  бачить тільки стабільний `ClusterIP` або DNS-імʼя `orders.default.svc.cluster.local`.
+- **API Gateway** (Kong, Nginx, Spring Cloud Gateway) - shed-зовнішнього
+  трафіку, плюс service-discovery лише на boundary системи.
+- **Service Mesh** (Istio, Linkerd) - sidecar-проксі бачить service registry
+  через control plane і робить routing/load-balancing замість клієнта.
+
+Переваги: клієнт нічого не знає про discovery (звичайний HTTP до `orders/`),
+можна міняти стратегію без redeploy.
+Недоліки: додатковий мережевий хоп (через gateway/proxy), gateway сам стає
+critical-path component.
+
+**Реєстрація і health checks**
+
+Інстанс має зареєструватись у реєстрі при старті і слати періодичний
+heartbeat. Якщо heartbeat припинився - реєстр позначає інстанс як unhealthy
+і прибирає його з ротації. Канонічні підходи:
+
+- **Self-registration** - сервіс сам викликає `register()` при старті,
+  `deregister()` при graceful shutdown. Просто, але вимагає бібліотеки на
+  кожній мові.
+- **Third-party registration** - окремий компонент (`registrator` у Docker,
+  K8s controller для подів) спостерігає за станом і реєструє/дереєструє за
+  сервіс. Канонічно у K8s.
+
+**Сучасний default - Kubernetes**
+
+У K8s service discovery вбудований: Pod автоматично реєструється у
+`endpoints` об'єкті свого Service'у; kube-proxy/CoreDNS забезпечують
+resolution. Окремий Eureka/Consul у K8s-cluster'і зазвичай зайвий - дубль
+функціональності. Eureka/Consul залишаються релевантними поза K8s (VM-on-prem,
+multi-cluster, гібридні середовища).
+
+*Links*
+
+- [Microsoft docs: Service registry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/service-registry)
+- [HashiCorp Consul docs: Service Discovery](https://www.consul.io/docs/architecture)
+- [Kubernetes docs: Services](https://kubernetes.io/docs/concepts/services-networking/service/)
 
 
 
@@ -317,3 +415,113 @@ JWT при цьому не зникає - він залишається меха
 
 Для невеликих систем (десятки сервісів, одна команда, одна мова) service mesh є
 надлишковим: ті самі задачі простіше вирішити бібліотекою на боці сервіса.
+
+
+
+### Distributed Tracing [❄️1/100]
+
+*Summary*
+> Distributed Tracing - спосіб простежити одиничний запит, що проходить через
+> N мікросервісів, як єдину сутність. У монолітному застосунку стек-трейс
+> покаже шлях запиту; у мікросервісах кожен сервіс має свій лог, і без
+> явного **Trace ID**, що супроводжує запит, реконструювати картину
+> неможливо. Канонічний стандарт - **OpenTelemetry** (об'єднання OpenTracing
+> + OpenCensus, CNCF, 2019).
+
+**Проблема, яку розв'язує**
+
+Запит клієнта `POST /orders` у системі з 5 сервісами проходить через
+`api-gateway → orders → inventory → payments → notifications`. Якщо
+`payments` повертає 500, у логах `notifications` нічого не видно, а у
+логах `orders` - тільки факт, що "виклик payments впав". Без єдиного
+ідентифікатора неможливо знайти ВСІ записи, що належать цьому
+конкретному запиту, серед мільйонів інших.
+
+**Trace, span, parent-child**
+
+OpenTelemetry і попередники (Dapper, Zipkin) описують модель:
+
+- **Trace** - вся життєва історія одного запиту через систему. Має
+  унікальний `trace_id` (наприклад, 128-bit UUID).
+- **Span** - одиничний відрізок роботи в межах одного сервісу (HTTP-call,
+  DB-query, обробка повідомлення з MQ). Має `span_id`, `parent_span_id`
+  (для побудови дерева), `start_time`, `duration`, `attributes` (теги).
+- Один Trace складається з багатьох Spans, утворюючи дерево або DAG.
+
+```
+Trace abc123 (POST /orders, 850ms total)
+├── span_1: api-gateway (auth, 5ms)
+└── span_2: orders.create (820ms)
+    ├── span_3: orders.db_insert (40ms)
+    ├── span_4: inventory.check (50ms)
+    │   └── span_5: inventory.db_query (15ms)
+    └── span_6: payments.charge (700ms)  ← bottleneck
+```
+
+**Trace ID propagation**
+
+`trace_id` народжується на edge (API Gateway генерує його для нового
+запиту, який не приніс свого) і **передається у кожен наступний
+синхронний/асинхронний виклик** через HTTP-заголовки. Стандарт - **W3C
+Trace Context** (`traceparent`, `tracestate`).
+
+```
+HTTP/1.1 POST /charge
+traceparent: 00-abc123def456-1234abcd-01
+```
+
+Кожен сервіс на ході:
+
+1. Витягує `trace_id` із вхідного запиту (або генерує, якщо немає).
+2. Створює власний span з цим `trace_id` і `parent_span_id`.
+3. Додає `trace_id` у структуровані логи (`{"trace_id": "abc123",
+   "msg": "..."}`).
+4. Передає `trace_id` у вихідні виклики (HTTP-headers, Kafka-headers).
+
+**OpenTelemetry як стандарт**
+
+OpenTelemetry - єдиний sdk + протокол (OTLP) для збору метрик, логів і
+трейсів. Bтратив фрагментацію (раніше: OpenTracing для трейсів, OpenCensus
+для метрик, що дублювали один одного). Канонічний пайплайн:
+
+```
+[app + OTel SDK] → OTel Collector → backend (Jaeger / Tempo / Datadog / etc.)
+```
+
+Для популярних бібліотек (`requests`, `aiohttp`, SQLAlchemy, asyncpg,
+FastAPI middleware) існує auto-instrumentation - окремі пакети
+(`opentelemetry-instrumentation-<lib>`) обгортають виклики бібліотеки у
+hook'и і експортують span'и без зміни коду застосунку.
+
+**Log aggregation: ELK, Loki, CloudWatch**
+
+Trace ID у логах марний без агрегації - логи лежать на N машинах.
+Канонічний пайплайн:
+
+- **ELK** (Elasticsearch + Logstash + Kibana) - індексує всі логи, дозволяє
+  query `trace_id:abc123` для одиничного запиту.
+- **Grafana Loki** - простіший і дешевший за ELK, label-based індексація;
+  query через LogQL.
+- **Fluentd / Fluent Bit** - log forwarder (заміна Logstash), збирає логи з
+  контейнерів і відправляє у centralized сховище.
+- **AWS CloudWatch Logs** / **GCP Cloud Logging** - cloud-native варіанти.
+
+**Кореляція з метриками і алертами**
+
+Високий за тривалістю span у трейсі → алерт у Grafana → click на трейс у
+Jaeger → деталі span'у `payments.charge` → click на `trace_id` у Kibana →
+повний contextual лог. Це і є "observability" триада: **logs + metrics +
+traces**, об'єднані через `trace_id`/`span_id`.
+
+**Sidecar / Service Mesh як safety net**
+
+У Service Mesh (Istio + Envoy) інструментація трейсингу - **автоматична**:
+sidecar бачить весь HTTP-трафік, генерує/прокидає trace headers, експортує
+span'и без зміни коду сервісу. Деталі - у [Service Mesh](#service-mesh).
+
+*Links*
+
+- [Google Dapper paper (2010)](https://research.google/pubs/dapper-a-large-scale-distributed-systems-tracing-infrastructure/) - оригінальна архітектура, з якої виросли Zipkin/Jaeger/OpenTelemetry
+- [W3C Trace Context](https://www.w3.org/TR/trace-context/) - стандарт propagation через HTTP
+- [OpenTelemetry docs](https://opentelemetry.io/docs/) - сучасний стандарт інструментації
+- [The Three Pillars of Observability](https://www.oreilly.com/library/view/distributed-systems-observability/9781492033431/ch04.html) - Cindy Sridharan, чому logs+metrics+traces потрібні разом
