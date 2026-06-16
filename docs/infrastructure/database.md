@@ -1337,6 +1337,76 @@ VACUUM вивільняє простір, зайнятий "мертвими" к
 
 
 
+### `pg_cron`: планувальник задач у PostgreSQL
+
+*Summary*
+> `pg_cron` - офіційне розширення PostgreSQL, яке виконує SQL-запити (або
+> функції) за cron-розкладом усередині самої СУБД. Дозволяє не тримати
+> зовнішній планувальник (Celery beat, systemd timer, k8s CronJob) лише
+> заради періодичних DB-операцій - чистки, агрегацій, переоцінок.
+
+**Призначення**
+
+Канонічні задачі: щоденне видалення застарілих рядків, періодичний `VACUUM`/
+`ANALYZE` на гарячих таблицях, нічна агрегація у звітні таблиці, оновлення
+materialized view, ротація log-таблиць.
+
+**Реалізація**
+
+Розширення треба встановити (`CREATE EXTENSION pg_cron;`) і додати у
+`shared_preload_libraries` у `postgresql.conf` (потребує рестарту). Завдання
+плануються через системну таблицю `cron.job`:
+
+```sql
+-- Run every day at 03:00 — delete old sessions
+SELECT cron.schedule(
+    'cleanup-sessions',
+    '0 3 * * *',
+    $$ DELETE FROM sessions WHERE expires_at < now() $$
+);
+
+-- Run every 10 minutes — refresh materialized view
+SELECT cron.schedule(
+    'refresh-stats',
+    '*/10 * * * *',
+    $$ REFRESH MATERIALIZED VIEW CONCURRENTLY daily_stats $$
+);
+
+-- List scheduled jobs
+SELECT jobid, schedule, command FROM cron.job;
+
+-- Unschedule
+SELECT cron.unschedule('cleanup-sessions');
+```
+
+Синтаксис розкладу - стандартний cron (хв, год, день місяця, місяць, день
+тижня).
+
+**Обмеження**
+
+- Виконання прив'язане до конкретного інстансу - на streaming-replica `pg_cron`
+  зазвичай не запускає задачі (тільки primary). На failover потрібно
+  переналаштувати.
+- Логування результатів обмежене - помилка задачі потрапляє у `cron.job_run_details`,
+  але немає вбудованого retry / alerting. Для критичних задач краще зовнішній
+  планувальник з retry-логікою (Celery, Dramatiq) і SQL-функцією як target.
+- Кероване середовище (AWS RDS, GCP Cloud SQL, Azure Database for PostgreSQL)
+  має власні обмеження на `pg_cron` - перевіряти провайдерську документацію.
+
+**Коли вибирати `pg_cron`**
+
+Простіше за зовнішній планувальник, коли вся задача - чистий SQL і не вимагає
+зовнішніх викликів (відправити email, викликати API). Якщо задача робить
+щось поза межами БД - правильніше Celery beat або k8s CronJob: вони працюють
+з повноцінним мовним runtime'ом і моніторингом.
+
+*Links*
+
+- [pg_cron README](https://github.com/citusdata/pg_cron) - синтаксис, обмеження, FAQ
+- [PostgreSQL docs: `CREATE EXTENSION`](https://www.postgresql.org/docs/current/sql-createextension.html)
+
+
+
 ### Як виявити повільний SQL запит?
 
 - Логування повільних запитів - У багатьох СУБД є можливість увімкнути логування повільних запитів. Наприклад, у MySQL можна налаштувати параметри `slow_query_log` та `long_query_time`, щоб записувати запити, які виконуються довше за заданий час.
@@ -1600,6 +1670,72 @@ PgBouncer дозволяє зменшити навантаження на сер
 - **Session pooling**: кожне з'єднання клієнта відповідає одній сесії сервера.
 - **Transaction pooling**: з'єднання використовується лише для однієї транзакції.
 - **Statement pooling**: з'єднання використовується для виконання одного SQL-запиту.
+
+
+
+### `pg_hba.conf`: host-based authentication
+
+*Summary*
+> `pg_hba.conf` - конфігураційний файл PostgreSQL, який визначає, **хто**, **звідки**
+> і **яким методом** може автентифікуватись на сервері. Перевіряється до видачі
+> запиту pg_authid; запис не пройшов - підключення відхилено ще до перевірки
+> пароля.
+
+**Структура запису**
+
+Один рядок - одне правило. Перший збіг по `type` + `database` + `user` +
+`address` визначає `method`. Порядок має значення - правила обробляються
+послідовно зверху вниз.
+
+```
+# TYPE   DATABASE   USER       ADDRESS          METHOD
+local    all        postgres                    peer
+host     all        all        127.0.0.1/32     scram-sha-256
+host     all        all        ::1/128          scram-sha-256
+hostssl  prod_db    app_user   10.0.0.0/16      scram-sha-256
+host     replica    repl_user  10.0.0.5/32      scram-sha-256
+host     all        all        0.0.0.0/0        reject
+```
+
+Поля:
+
+- **TYPE** - канал підключення: `local` (Unix-socket), `host` (TCP, SSL або
+  plaintext), `hostssl` (тільки TLS), `hostnossl` (тільки без TLS).
+- **DATABASE / USER** - до якої БД і яким користувачам застосовується. `all`,
+  список через кому, `replication` (для streaming-replica).
+- **ADDRESS** - CIDR-блок IP (`10.0.0.0/16`) або hostname. Тільки для `host*`.
+- **METHOD** - як автентифікувати: `scram-sha-256` (сучасний дефолт),
+  `md5` (legacy), `peer` (Unix-socket: ОС-користувач має збігатись з
+  Postgres-роллю), `cert` (mutual TLS), `trust` (без перевірки -
+  ТІЛЬКИ для локальних dev-середовищ), `reject` (явна відмова).
+
+**Типові патерни**
+
+- **Production-сервер**: `local` через `peer` для admin-операцій; `hostssl` з
+  `scram-sha-256` для додатків з конкретних CIDR; явний `reject` як остання
+  лінія для всіх інших.
+- **Replication**: окремий запис `host replication repl_user 10.0.0.5/32 scram-sha-256`
+  для streaming-replica. Без нього вторинна нода не зможе під'єднатись.
+- **TLS-required**: `hostssl` замість `host` гарантує, що пароль/дані не
+  ходять у plaintext.
+
+**Перезавантаження**
+
+Правки `pg_hba.conf` не вимагають рестарту; досить `pg_ctl reload` або
+`SELECT pg_reload_conf();`. Помилка синтаксису - сервер логує і ігнорує
+правила після помилки. Перевірка - `SELECT * FROM pg_hba_file_rules` (Postgres
+10+) показує поточно завантажені правила і статус кожного.
+
+**Антипатерн: `trust` поза локалхостом**
+
+`trust` означає "будь-хто на цій адресі - валідний". На production-CIDR це
+дає повний RW-доступ до БД без пароля. Допустимо тільки для localhost у
+ізольованому dev-середовищі.
+
+*Links*
+
+- [PostgreSQL docs: pg_hba.conf](https://www.postgresql.org/docs/current/auth-pg-hba-conf.html) - повна специфікація
+- [PostgreSQL docs: Authentication Methods](https://www.postgresql.org/docs/current/auth-methods.html) - `scram-sha-256`, `peer`, `cert` тощо
 
 
 
