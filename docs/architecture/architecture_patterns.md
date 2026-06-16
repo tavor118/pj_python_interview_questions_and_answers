@@ -287,7 +287,7 @@ Onion архітектура будується на кількох шарах, 
 
 
 
-### CQRS [❄️2/100]
+### CQRS [❄️3/100]
 
 *Summary*
 > CQRS (Command Query Responsibility Segregation) - розділення моделей запису
@@ -345,6 +345,111 @@ CQRS часто йде разом з **Event Sourcing** (стан - похідн
 
 CQRS - інвестиція у складність; виправдовується лише там, де патерни запису й читання
 справді розходяться.
+
+
+
+### Event Sourcing [❄️1/100]
+
+*Summary*
+> **Event Sourcing** - архітектурний патерн, у якому **поточний стан** системи -
+> похідна функція від **послідовності всіх подій**, що з ним сталися. Замість
+> зберігати "balance = 100" зберігається "deposited 70, deposited 50,
+> withdrew 20". Поточний стан реконструюється шляхом послідовного
+> застосування подій (replay). Канонічний партнер для CQRS і event-driven
+> архітектур.
+
+**Принцип роботи**
+
+Замість state-mutating операцій (`UPDATE accounts SET balance = 100 WHERE id = 1`)
+застосунок генерує **домен-події** і записує їх у append-only журнал
+(**event store**). Поточний стан обчислюється на ходу або кешується у
+read-моделях (snapshots).
+
+```
+# Traditional state model
+accounts table:
+  id=1, balance=100
+
+# Event-sourced model
+events table (append-only):
+  id=1, event=AccountOpened,      payload={initial: 0}
+  id=2, event=MoneyDeposited,     payload={amount: 70}
+  id=3, event=MoneyDeposited,     payload={amount: 50}
+  id=4, event=MoneyWithdrawn,     payload={amount: 20}
+
+# Current balance = sum of events:
+#   0 + 70 + 50 - 20 = 100
+```
+
+**Переваги**
+
+- **Повний аудит "безкоштовно".** Журнал подій - це і є audit log. Можна
+  відповісти на "як саме баланс дійшов до цього значення" point-in-time.
+- **Time travel.** Реконструкція стану на будь-який момент: програти події
+  до timestamp T.
+- **Природне джерело для CQRS read-моделей.** Кожна read-модель - окремий
+  projection: підписується на події і будує свою денормалізовану таблицю
+  (Postgres для UI, Elasticsearch для пошуку, ClickHouse для аналітики).
+- **Event-driven інтеграція.** Інші bounded contexts підписуються на ту ж
+  стрічку - природна основа для Saga, Outbox, eventual consistency між
+  сервісами.
+
+**Недоліки і пастки**
+
+- **Складність моделювання.** Думати у термінах подій (`UserAddressChanged`,
+  `OrderShipped`) важче за думати у термінах таблиць. Помилки в дизайні
+  складніше виправити - події імутабельні, replay усієї історії - дорогий.
+- **Schema versioning.** Подія, записана 3 роки тому, мусить вміти
+  десеріалізуватися сучасним кодом. Стратегії: upcasters (трансформація
+  старих подій у нові формати), schema registry (Avro з compatibility rules).
+- **Snapshots для performance.** Replay тисячі подій на кожний запит -
+  неприйнятна латентність. Канонічний шлях: snapshot щоразу N подій,
+  поточний стан = snapshot + події після snapshot'у.
+- **Eventually consistent read-моделі.** Read-модель оновлюється з певною
+  затримкою після події. Користувач може побачити "застарілий" стан -
+  додавати UX-індикатори ("обробляємо...") або робити hybrid (синхронне
+  оновлення критичної read-моделі).
+
+**Event Sourcing і CQRS - часто разом, але незалежні**
+
+- **CQRS без ES**: розділення read/write над тією самою БД (Postgres),
+  read-side - матеріалізовані view або окрема денормалізована таблиця,
+  оновлювана тригерами або CDC.
+- **ES без CQRS**: журнал подій - джерело істини, але читання теж із
+  нього (через aggregations) - підходить для звітності, рідше для OLTP UI.
+- **CQRS + ES**: журнал подій → проектори → багато read-моделей під
+  різні use cases. Канонічна повна форма.
+
+**Реалізації**
+
+- **EventStoreDB** - спеціалізована БД для event sourcing.
+- **Apache Kafka** як event log - найпоширеніший варіант у мікросервісах;
+  тривале зберігання у партиціях, replay через `seek-to-beginning`.
+- **PostgreSQL append-only `events` table** - простий старт; добре працює
+  до ~мільйонів подій, потім потрібен Kafka або спеціалізована БД.
+- **AxonFramework** (Java/Kotlin), **Marten** (.NET) - opinionated framework'и
+  для ES+CQRS на існуючих БД.
+
+**Коли застосовувати**
+
+- Домени з жорсткими вимогами до аудиту (фінанси, медицина, регуляторні
+  бізнеси).
+- Складні domain workflows, де "хто-що-коли" важливіше за "поточний стан".
+- Системи з кількома різними read-патернами (UI, analytics, search) -
+  ES + CQRS природно дає кожному свою проекцію.
+
+**Коли НЕ застосовувати**
+
+- Простий CRUD без аудиту - оверкіл, накладні витрати на event modeling
+  не виправдані.
+- Команда без досвіду ES - помилки моделювання тут дорогі і важко
+  виправляються.
+
+*Links*
+
+- [Martin Fowler: Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) - канонічна стаття
+- [Greg Young: CQRS Documents](https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf) - PDF з фундаментальним описом ES+CQRS
+- [Microsoft docs: Event Sourcing pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing)
 
 
 
@@ -550,7 +655,7 @@ CREATE TABLE inbox (
 
 
 
-### Що таке ідемпотентність? [❄️1/100]
+### Що таке ідемпотентність? [❄️2/100]
 
 *Summary*
 > **Ідемпотентність** - властивість операції, при якій повторний виклик з тими ж 
@@ -652,6 +757,186 @@ Lua-варіанти наведено у файлі [`infrastructure/database.md
 
 
 
+### Circuit Breaker [❄️1/100]
+
+*Summary*
+> **Circuit Breaker** - resilience-патерн, який автоматично припиняє виклики
+> до downstream-сервісу при виявленій деградації (high error rate, timeout).
+> Захищає викликача від витрачання ресурсів на безнадійні виклики і дає
+> downstream-сервісу час відновитися. Аналогія з електричним
+> запобіжником: при перевантаженні розриває коло, після відновлення -
+> замикає назад. Канонічно описаний Майклом Найґардом у "Release It!" (2007).
+
+**Проблема, яку розв'язує**
+
+У звичайному сценарії клієнт викликає `payments`. Якщо `payments` недоступний
+(crashed, network partition, overload), кожен виклик блокує клієнтський
+потік до timeout'у (5-30s). 100 паралельних запитів витрачають 100 потоків
+× 30s × CPU/RAM на нічого. Клієнт стає теж недоступним - **cascading
+failure**. Без захисту збій одного сервісу обвалює всю систему.
+
+**Три стани**
+
+```
+   [Closed]  ──── failures cross threshold ────▶  [Open]
+       ▲                                            │
+       │ success after probe                        │ wait timeout
+       │                                            ▼
+       └─────────  [Half-Open]  ◀───── probe request
+```
+
+- **Closed** (нормальний стан): виклики проходять. Breaker рахує помилки
+  (consecutive failures, error rate за window).
+- **Open**: при перевищенні порогу - breaker "розриває коло". Усі наступні
+  виклики **миттєво відхиляються** з помилкою (`CircuitBreakerOpen`) без
+  спроби досягти downstream. Економить ресурси клієнта і дає downstream
+  час відновитися.
+- **Half-Open**: після `reset_timeout` (зазвичай 30-60s) breaker пропускає
+  один пробний запит. Успіх → Closed (відновлено). Невдача → Open (нова
+  пауза).
+
+**Конфігураційні параметри**
+
+- `failure_threshold` - кількість consecutive failures або error rate за
+  rolling window для переходу Closed → Open.
+- `reset_timeout` - як довго лишатися Open перед переходом у Half-Open.
+- `success_threshold` - скільки успіхів у Half-Open перед поверненням у Closed.
+- `slow_call_duration` - окремий тригер: повільні виклики (наприклад,
+  >2s) рахуються як failures, навіть якщо повертають успіх.
+
+**Реалізація**
+
+```python
+# Concept (pseudocode); production - use pybreaker / aiobreaker
+class CircuitBreaker:
+    def call(self, func, *args):
+        if self.state == "Open":
+            if time.time() - self.opened_at > self.reset_timeout:
+                self.state = "Half-Open"
+            else:
+                raise CircuitBreakerOpen()
+        try:
+            result = func(*args)
+            self._on_success()
+            return result
+        except Exception:
+            self._on_failure()
+            raise
+```
+
+**Бібліотеки**
+
+- **Python**: [`pybreaker`](https://github.com/danielfm/pybreaker), [`aiobreaker`](https://github.com/arlyon/aiobreaker) - sync/async.
+- **Java**: [`resilience4j`](https://resilience4j.readme.io/) (де-факто стандарт),
+  Netflix Hystrix (deprecated, але історично канонічний).
+- **.NET**: [`Polly`](https://github.com/App-vNext/Polly) - комбіновані політики
+  (retry + circuit breaker + bulkhead).
+- **Service Mesh** (Istio, Linkerd): circuit breaker як sidecar-policy -
+  жодного коду в застосунку. Деталі - у
+  [`microservices.md` Service Mesh](../architecture/microservices.md#service-mesh).
+
+**Пов'язані патерни**
+
+- **Retry**: працює навпаки - повторює виклик. Circuit Breaker і Retry
+  застосовуються разом, але обережно (див. наступну секцію).
+- **Bulkhead**: ізолює пули ресурсів (потоки, з'єднання) per-downstream,
+  щоб збій одного не виснажив пул для інших.
+- **Timeout**: завжди окрім breaker'а - без timeout навіть Closed breaker
+  не врятує від зависання на синхронному виклику.
+- **Fallback**: повертати кешовану/дефолтну відповідь замість помилки,
+  коли breaker Open (graceful degradation).
+
+*Links*
+
+- [Martin Fowler: CircuitBreaker](https://martinfowler.com/bliki/CircuitBreaker.html) - канонічна стаття
+- [Michael Nygard: Release It! (book)](https://pragprog.com/titles/mnee2/release-it-second-edition/) - першоджерело патерну
+- [resilience4j: Circuit Breaker documentation](https://resilience4j.readme.io/docs/circuitbreaker)
+
+
+
+### Retry pattern [❄️1/100]
+
+*Summary*
+> **Retry** - resilience-патерн, який повторює провалений виклик у надії
+> на тимчасову природу збою (transient failure: network blip, rate limit,
+> deadlock retry). Канонічна реалізація - **exponential backoff + jitter**.
+> Безпечний лише на ідемпотентних операціях - інакше повтор створює
+> дублі (списання грошей двічі, дві однакові записи).
+
+**Принцип роботи**
+
+При невдачі (HTTP 5xx, network timeout, retriable error code) клієнт чекає
+певний час і повторює запит. Між спробами - **exponential backoff** (1s,
+2s, 4s, 8s...) щоб не задавити downstream під час відновлення. Плюс
+**jitter** (випадкове відхилення ±20%) щоб уникнути thundering herd, коли
+тисячі клієнтів синхронно повторюють у ту саму мілісекунду.
+
+```python
+# Concept; production - use tenacity / backoff
+async def retry(func, max_attempts=5, base_delay=1.0):
+    for attempt in range(max_attempts):
+        try:
+            return await func()
+        except RetriableError:
+            if attempt == max_attempts - 1:
+                raise
+            delay = base_delay * (2 ** attempt)
+            delay *= 0.8 + random.random() * 0.4  # jitter ±20%
+            await asyncio.sleep(delay)
+```
+
+**Що повторювати, що ні**
+
+- **Повторювати:** HTTP 502/503/504, network timeouts, `40001` serialization
+  failures у PostgreSQL, rate-limit `429`, тимчасові DB deadlock'и.
+- **НЕ повторювати:** HTTP 400/401/403/404 - помилка коду/конфігу, повтор не
+  допоможе (можливо нашкодить). HTTP 422 (validation) - те саме.
+- **Обережно з 5xx:** деякі 500-ки - детермінований баг у downstream;
+  повтор лише множить навантаження.
+
+**Обов'язкова ідемпотентність на receiving side**
+
+Канонічний антипатерн: клієнт відправляє `POST /payments/charge`, сервер
+обробляє і списує гроші, але відповідь губиться у мережі. Клієнт повторює
+- сервер знову списує. Подвійне списання.
+
+Захист: **ідемпотентність** - запит несе унікальний `idempotency_key`,
+сервер пам'ятає вже оброблені ключі і повертає закешовану відповідь без
+повторного side-effect'у. Деталі - у [Ідемпотентність](#що-таке-ідемпотентність)
+і [Inbox Pattern](#inbox-pattern).
+
+**Retry + Circuit Breaker**
+
+Обидва патерни застосовуються разом, але обережно:
+
+- **Retry** працює на рівні одного логічного виклику (5 спроб з backoff).
+- **Circuit Breaker** працює на рівні агрегату викликів (50 викликів з 100
+  провалились - відкрити коло).
+
+Без breaker'а retry може посилити навантаження на падаючий сервіс
+(**retry storm**). Канонічний порядок: спочатку spend retry budget, якщо
+все одно failures - breaker відкривається і миттєво відхиляє наступні без
+retry'їв.
+
+**Бібліотеки**
+
+- **Python**: [`tenacity`](https://github.com/jd/tenacity) - декоратор +
+  flexible policy; [`backoff`](https://github.com/litl/backoff) - простіший
+  декоратор; [`urllib3.util.Retry`](https://urllib3.readthedocs.io/en/stable/reference/urllib3.util.html#urllib3.util.Retry)
+  для HTTP-клієнтів.
+- **Java**: `resilience4j` (Retry + CircuitBreaker в одному API), Spring
+  `@Retryable`.
+- **.NET**: `Polly` - єдиний DSL для retry + breaker + timeout.
+- **Service Mesh** (Istio, Linkerd): retry-policy на рівні sidecar без коду.
+
+*Links*
+
+- [Microsoft docs: Retry pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)
+- [AWS Architecture Blog: Exponential Backoff And Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/) - чому потрібен jitter
+- [tenacity docs](https://tenacity.readthedocs.io/en/latest/) - Python retry бібліотека
+
+
+
 ### Rate Limiter [❄️3/100]
 
 *Summary*
@@ -720,7 +1005,7 @@ infrastructure-шару витрачає ресурси на обробку ат
 
 
 
-### Як зрозуміти, що застосунок зламався? [❄️1/100]
+### Як зрозуміти, що застосунок зламався? [❄️2/100]
 
 *Summary*
 > Жодний один спосіб не дає повної картини.
