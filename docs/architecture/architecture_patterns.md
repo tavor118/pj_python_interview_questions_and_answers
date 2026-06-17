@@ -1,6 +1,6 @@
 ## Architecture Patterns
 
-### CAP теорема [❄️1/100]
+### CAP теорема [❄️2/100]
 
 **CAP теорема** (Consistency, Availability, Partition Tolerance) описує обмеження у 
 розподілених системах. Вона стверджує, що неможливо одночасно забезпечити всі три властивості
@@ -248,7 +248,7 @@ Dependency Injection дозволяє замінити конкретну реа
 
 
 
-### Hexagonal vs onion архітектура [❄️1/100]
+### Hexagonal vs onion архітектура [❄️2/100]
 
 Hexagonal та onion архітектури є популярними підходами до побудови програмних систем, 
 які спрямовані на підвищення гнучкості, зручності тестування та ізоляції бізнес-логіки 
@@ -287,7 +287,7 @@ Onion архітектура будується на кількох шарах, 
 
 
 
-### CQRS [❄️4/100]
+### CQRS [❄️9/100]
 
 *Summary*
 > CQRS (Command Query Responsibility Segregation) - розділення моделей запису
@@ -461,7 +461,7 @@ events table (append-only):
 
 
 
-### Transactional Outbox Pattern [❄️2/100]
+### Transactional Outbox Pattern [❄️3/100]
 
 *Summary*
 > **Transactional Outbox** - патерн розподілених систем, який забезпечує узгодженість
@@ -663,7 +663,7 @@ CREATE TABLE inbox (
 
 
 
-### Що таке ідемпотентність? [❄️5/100]
+### Що таке ідемпотентність? [❄️6/100]
 
 *Summary*
 > **Ідемпотентність** - властивість операції, при якій повторний виклик з тими ж 
@@ -1542,7 +1542,7 @@ class ModuleRegistry:
 
 
 
-### Скінченний автомат (Finite State Machine)
+### Скінченний автомат (Finite State Machine) [❄️2/100]
 
 *Summary*
 > Скінченний автомат (FSM) моделює сутність зі строго визначеним набором станів і
@@ -1600,7 +1600,7 @@ def apply(state: State, event: str) -> State:
 
 
 
-### Chain of Responsibility (ланцюг відповідальності)
+### Chain of Responsibility (ланцюг відповідальності) [❄️1/100]
 
 *Summary*
 > Поведінковий патерн GoF: запит передається **ланцюгом обробників**, доки хтось його не

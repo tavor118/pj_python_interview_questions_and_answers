@@ -99,7 +99,7 @@ Core.
 
 
 
-### Active Record проти Data Mapper
+### Active Record проти Data Mapper [❄️1/100]
 
 *Summary*
 > Два патерни доступу до даних (за Фаулером). **Active Record**: об'єкт-модель сам знає, як
@@ -242,7 +242,7 @@ stmt = select(Post).options(
 
 
 
-### `Session` vs `sessionmaker` [❄️3/100]
+### `Session` vs `sessionmaker` [❄️4/100]
 
 *Summary*
 > `Session` - unit of work, що тримає identity map, трекає зміни і flush'ить

@@ -304,7 +304,7 @@ print_area(rectangle)  # Output: The area of the shape is: 24
 
 
 
-### Композиція проти Наслідування (Composition vs Inheritance) [❄️4/100]
+### Композиція проти Наслідування (Composition vs Inheritance) [❄️6/100]
 
 *Summary*
 > - Агрегація та композиція - це відношення `has-a` (має) між об'єктами, де один клас містить посилання на інший клас.

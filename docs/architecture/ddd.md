@@ -295,7 +295,7 @@ class TaskResponse:
 
 
 
-### Rich vs Anemic Domain Model [❄️3/100]
+### Rich vs Anemic Domain Model [❄️4/100]
 
 *Summary*
 > **Rich Model** - доменна модель, де бізнес-логіка живе всередині сутностей
@@ -407,7 +407,7 @@ class CancelOrderHandler:
 
 
 
-### Repository vs DAO [❄️4/100]
+### Repository vs DAO [❄️5/100]
 
 *Summary*
 > **Repository** і **DAO** часто плутають, але це два різні патерни.

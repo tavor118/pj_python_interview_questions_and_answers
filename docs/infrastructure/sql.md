@@ -128,7 +128,7 @@ CREATE TABLE users (
 
 
 
-### Оператор та види `JOIN` [❄️3/100]
+### Оператор та види `JOIN` [❄️4/100]
 
 Оператор `JOIN` в SQL використовується для об'єднання даних з двох або більше таблиць
 на основі визначених умов.
@@ -542,7 +542,7 @@ ROLLBACK;  -- table is back to its original contents
 
 
 
-### Що робить SELECT FOR UPDATE? [❄️8/100]
+### Що робить SELECT FOR UPDATE? [💡10/100]
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
 що вибираються під час виконання запиту, щоб уникнути конкурентних змін даних.
@@ -772,7 +772,7 @@ user = User.objects.filter(id=user_input).first()  # ORM escapes input automatic
 - Логування та моніторинг запитів допоможуть вчасно виявити підозрілу активність.
 
 
-### View, Materialised View [❄️1/100]
+### View, Materialised View [❄️2/100]
 
 У SQL **View** (представлення) та **Materialized View** (матеріалізоване представлення) — 
 це способи роботи з даними, що полегшують доступ до складних запитів
@@ -821,7 +821,7 @@ SELECT * FROM monthly_sales; -- Query Materialized View
 
 
 
-### `EXPLAIN` та `EXPLAIN ANALYZE` [❄️2/100]
+### `EXPLAIN` та `EXPLAIN ANALYZE` [❄️5/100]
 
 `EXPLAIN` - це команда, яка надає інформацію про план виконання запиту.
 Вона показує, як база даних планує виконати запит, включаючи індекси,
@@ -853,7 +853,7 @@ Seq Scan on employees (cost=0.00..12.50 rows=3 width=100)
 
 
 
-### PostgreSQL Row-Level Security [❄️1/100]
+### PostgreSQL Row-Level Security [❄️2/100]
 
 *Summary*
 > Row-Level Security (RLS) - вбудований у Postgres механізм фільтрації рядків
