@@ -1597,3 +1597,58 @@ def apply(state: State, event: str) -> State:
 (`order.pay()`, `order.cancel()`), а не в сервісному шарі. Так стан не можна змінити в обхід
 правил. Споріднений патерн GoF - **State**, коли поведінку кожного стану виносять в окремий
 клас замість таблиці переходів.
+
+
+
+### Chain of Responsibility (ланцюг відповідальності)
+
+*Summary*
+> Поведінковий патерн GoF: запит передається **ланцюгом обробників**, доки хтось його не
+> опрацює. Кожна ланка або обробляє запит сама, або передає наступній. Відправник не знає,
+> хто саме обробить - лише про початок ланцюга. Класичні приклади: middleware-конвеєр,
+> валідація за етапами, послідовне заповнення форми (крок за кроком), ескалація обробки.
+
+**Принцип роботи**
+
+- Кожен обробник має посилання на наступного й метод `handle(request)`.
+- Обробник вирішує: опрацювати запит самому, передати далі, або і те, і те.
+- Додати, прибрати чи переставити ланку можна без зміни інших - ланцюг конфігурується
+  ззовні (Open/Closed).
+
+```python
+from abc import ABC, abstractmethod
+
+class Handler(ABC):
+    def __init__(self, nxt: "Handler | None" = None):
+        self._next = nxt
+
+    @abstractmethod
+    def handle(self, request) -> str | None: ...
+
+    def _forward(self, request):
+        return self._next.handle(request) if self._next else None
+
+class AuthHandler(Handler):
+    def handle(self, request):
+        if not request.get("user"):
+            return "401 unauthorized"
+        return self._forward(request)        # pass down the chain
+
+class RateLimitHandler(Handler):
+    def handle(self, request):
+        if request.get("rate_exceeded"):
+            return "429 too many requests"
+        return self._forward(request)
+
+chain = AuthHandler(RateLimitHandler())
+chain.handle({"user": "alice"})
+```
+
+**Де зустрічається**
+
+- Middleware-конвеєри у вебфреймворках: кожен middleware або відповідає, або передає далі.
+- Послідовне заповнення форми (крок за кроком), де кожна ланка опрацьовує свій крок.
+- Обробка винятків як ескалація по рівнях відповідальності.
+
+Споріднений зі скінченним автоматом (розділ вище) для лінійних сценаріїв, але CoR - про
+передачу запиту обробникам, а FSM - про переходи між станами.
