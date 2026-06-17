@@ -617,6 +617,37 @@ async def main():
 asyncio.run(main())  # elapsed time: 6.0 seconds
 ```
 
+**Уточнення: не кожен `await` віддає керування циклу.** `await` повертає управління в
+event loop лише на **реальній точці призупинення** - коли корутина очікує `Future`, який
+ще не готовий (фактичний I/O: `asyncio.sleep`, читання сокета тощо). Якщо `await`
+застосовано до корутини, що завершується без жодного призупинення, увесь ланцюг викликів
+виконується синхронно, як звичайні виклики функцій, і цикл подій керування не отримує.
+Тому глибокий стек корутин, які очікують одна одну, сам по собі перемикання не дає - воно
+настає лише коли внизу стека трапляється незавершений `Future`. Примусову точку
+перемикання можна вставити через `await asyncio.sleep(0)`.
+
+```python
+import asyncio
+
+async def leaf():
+    return 1                      # no await on a pending Future -> never suspends
+
+async def worker(name):
+    for i in range(3):
+        await leaf()              # completes instantly -> control is NOT yielded
+        print(name, i)
+
+async def main():
+    await asyncio.gather(worker("A"), worker("B"))
+
+asyncio.run(main())
+# A 0 / A 1 / A 2 / B 0 / B 1 / B 2
+# A відпрацьовує повністю - B не вклинюється, бо await leaf() жодного разу не призупинився
+```
+
+Якщо замінити `await leaf()` на `await asyncio.sleep(0)` (реальна точка призупинення),
+виконання почне чергуватися: `A 0 / B 0 / A 1 / B 1 / A 2 / B 2`.
+
 
 
 ### Як запустити код конкурентно в asyncio? [❄️1/100]

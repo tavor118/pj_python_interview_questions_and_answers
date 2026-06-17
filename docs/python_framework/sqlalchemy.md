@@ -99,6 +99,50 @@ Core.
 
 
 
+### Imperative mapping: відокремити доменну сутність від ORM
+
+*Summary*
+> Декларативний стиль (`class User(Base)`) прив'язує доменний клас до SQLAlchemy -
+> він успадковує `Base`, тобто домен залежить від інфраструктури. **Imperative
+> mapping** (`registry.map_imperatively(Class, table)`) лишає доменну сутність
+> **звичайним класом без жодного імпорту SQLAlchemy**, а таблицю описує окремо. Це
+> класичний прийом чистої архітектури / DDD - домен не знає про ORM.
+
+При декларативному мапінгу клас = таблиця і прив'язаний до фреймворку (успадковує
+`Base`, поля - `Mapped[...]`). Якщо ж домен має бути незалежним від сховища, сутність
+визначають як plain-клас, а зв'язок із таблицею задають імперативно:
+
+```python
+from dataclasses import dataclass
+from sqlalchemy import Table, Column, Integer, String, MetaData
+from sqlalchemy.orm import registry
+
+# 1. Domain entity - a plain class, zero SQLAlchemy imports in its definition
+@dataclass
+class User:
+    id: int | None
+    name: str
+
+# 2. Table described separately (infrastructure layer)
+metadata = MetaData()
+user_table = Table(
+    "users", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", String),
+)
+
+# 3. Imperative mapping wires them from the outside
+mapper_registry = registry()
+mapper_registry.map_imperatively(User, user_table)
+```
+
+Тепер `session.scalars(select(User))` повертає екземпляри **доменного** `User`, а не
+окремого ORM-класу, тоді як уся прив'язка до SQLAlchemy зосереджена в інфраструктурі.
+Альтернатива - тримати окремі ORM-моделі й конвертувати їх у доменні сутності/DTO на
+межі шару (розділ "ORM-об'єкти - не DTO" нижче).
+
+
+
 ### Lazy vs Eager loading: стратегії завантаження relationship [❄️2/100]
 
 *Summary*
@@ -191,7 +235,7 @@ stmt = select(Post).options(
   Python-об'єкту. Повторний `session.get(User, 1)` повертає той самий
   екземпляр, не новий.
 - **Unit of work.** Зміни об'єктів акумулюються у session і flush'аться
-  одним батчем (при commit, явному `flush()`, або при наступному `SELECT`).
+  одним пакетом (при commit, явному `flush()`, або при наступному `SELECT`).
 - **Transaction boundary.** `session.commit()` фіксує транзакцію,
   `session.rollback()` скасовує всі pending-зміни.
 - **Expire on commit.** За замовчуванням після commit усі атрибути об'єктів
