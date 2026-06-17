@@ -99,7 +99,7 @@ Core.
 
 
 
-### Lazy vs Eager loading: стратегії завантаження relationship [❄️1/100]
+### Lazy vs Eager loading: стратегії завантаження relationship [❄️2/100]
 
 *Summary*
 > `relationship()` у SQLAlchemy за замовчуванням завантажується **ліниво** -

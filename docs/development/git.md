@@ -106,7 +106,7 @@ git push origin main  # main - branch name, origin - repository name
 
 
 
-### Що таке Git Rebase ? [❄️2/100]
+### Що таке Git Rebase ? [❄️3/100]
 
 `git rebase` - це операція, яка дозволяє змінити історію комітів гілки шляхом перенесення 
 комітів з однієї гілки в іншу. 
@@ -162,7 +162,7 @@ git push -f
 
 
 
-### У чому різниця `git merge` та `git rebase`? [❄️2/100]
+### У чому різниця `git merge` та `git rebase`? [❄️3/100]
 
 `git merge` та `git rebase` обидва поєднують зміни з однієї гілки з іншої, але роблять це 
 по-різному. 

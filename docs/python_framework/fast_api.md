@@ -177,7 +177,7 @@ def admin_stats() -> StatsSchema:
 
 
 
-### Sync vs async ендпоінти у FastAPI [❄️1/100]
+### Sync vs async ендпоінти у FastAPI [❄️3/100]
 
 *Summary*
 > `async def` handler виконується у тому самому event loop'і ASGI-сервера. `def`
@@ -321,7 +321,7 @@ worker (Celery, RQ, ARQ, Dramatiq) і публікувати завдання у
 
 
 
-### FastAPI під капотом [❄️1/100]
+### FastAPI під капотом [❄️2/100]
 
 *Summary*
 > FastAPI - тонкий шар поверх двох незалежних бібліотек: Starlette (ASGI

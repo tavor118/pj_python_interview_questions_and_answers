@@ -36,7 +36,7 @@
 
 
 
-### Django ORM [❄️2/100]
+### Django ORM [❄️4/100]
 
 **Django ORM (Object-Relational Mapping)** — це компонент Django,
 який дозволяє взаємодіяти з базою даних, використовуючи об'єктно-орієнтовані моделі,
@@ -177,7 +177,7 @@ products = Product.objects.annotate(
 
 
 
-### `QuerySet` [❄️1/100]
+### `QuerySet` [❄️2/100]
 
 *Summary*
 > **QuerySet** - набір об'єктів моделі, який представляє SQL-запит до БД у
@@ -601,7 +601,7 @@ for book in books:
 ```
 
 
-### Різниця між `select_related` та `prefetch_related` [❄️2/100]
+### Різниця між `select_related` та `prefetch_related` [❄️4/100]
 
 У Django, `select_related` та `prefetch_related` — це два методи, які використовуються
 для оптимізації запитів до бази даних з метою зменшення кількості виконаних запитів і 
