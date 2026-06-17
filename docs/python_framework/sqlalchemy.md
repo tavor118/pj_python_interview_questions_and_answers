@@ -264,6 +264,42 @@ expire on commit.
 
 
 
+### ORM-об'єкти - не DTO
+
+*Summary*
+> ORM-екземпляр SQLAlchemy виглядає як `dataclass` (ті самі поля), але це не
+> пасивний DTO: він **мутабельний** і прив'язаний до `Session` (identity map +
+> unit of work). Зміна атрибута persistent-об'єкта позначає його "брудним", і на
+> `commit` сесія сама вистрілює `UPDATE` - навіть якщо зміна була випадковою. Тому
+> ORM-об'єкти не передають крізь шари: на межі їх конвертують у простий DTO.
+
+**Ризик випадкового `UPDATE`.** Запит через ORM повертає об'єкт із заповненими
+полями, тож спокусливо передати його далі по ланцюжку викликів як звичайні дані. Але
+`Session` трекає всі завантажені об'єкти: змінив поле persistent-об'єкта (хай навіть
+помилково, гадаючи що це DTO) - на наступному `commit`/`flush` у БД полетить
+`UPDATE`. Жодного явного `save()` для цього не треба.
+
+```python
+user = session.get(User, 42)   # persistent, tracked by the session
+dto = user                     # looks like plain data, but it is the live ORM object
+dto.name = "typo"              # meant to touch a DTO - actually marks the row dirty
+session.commit()               # UPDATE "Users" SET name='typo' WHERE id=42  (!)
+```
+
+Інші відмінності від DTO:
+
+- **Detached після закриття сесії.** Коли сесія закрита, доступ до незавантажених атрибутів чи relationship кидає `DetachedInstanceError`.
+- **Lazy-relationship.** Звернення до не-eager relationship мовчки робить запит у БД - класичне джерело проблеми N+1 (див. розділ "Lazy vs Eager loading" вище).
+
+**Рішення: конвертувати на межі шару.** Data-шар повертає ORM-об'єкт лише всередині
+себе, а назовні (в use-case, презентацію) віддає **plain DTO** (`dataclass` чи
+Pydantic-модель), зібраний з потрібних полів. Тоді зміни DTO нікого не торкаються, а
+поведінка сесії не "тече" у бізнес-логіку. Це та сама причина, чому Repository не
+віддає ORM-моделі - див. [`architecture/ddd.md`](../architecture/ddd.md) розділ
+"Repository vs DAO".
+
+
+
 ### Connection pool: `pool_size`, `max_overflow`, `pool_recycle` [❄️1/100]
 
 *Summary*
