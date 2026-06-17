@@ -1539,3 +1539,61 @@ class ModuleRegistry:
   coupling. Якщо модулі ділять стан - або це спільна інфраструктура
   (`SharedKernel` в DDD-термінах), або один з модулів насправді є частиною
   іншого.
+
+
+
+### Скінченний автомат (Finite State Machine)
+
+*Summary*
+> Скінченний автомат (FSM) моделює сутність зі строго визначеним набором станів і
+> дозволеними переходами між ними. Замість розкиданих `if/elif` за полем `status` -
+> явна таблиця переходів: з якого стану в який можна перейти і за якою подією. Класичні
+> приклади: статус замовлення, платежу, заявки - будь-який життєвий цикл із правилами.
+
+**Принцип роботи**
+
+- **Стани й переходи.** Скінченна множина станів (`created → paid → shipped → delivered`)
+  і дозволені переходи. Спроба недозволеного переходу (наприклад, `delivered → paid`)
+  відхиляється - інваріант життєвого циклу закодований у структурі переходів, а не в
+  розкиданих перевірках.
+- **Чому не `if`-и.** Логіка переходів зосереджена в одному місці; додати стан = додати
+  запис у таблицю переходів, не змінюючи тіла функцій (Open/Closed). Легше тестувати й
+  візуалізувати як граф станів.
+- **Реалізація в Python.** Власний клас зі словником дозволених переходів або бібліотека
+  `transitions` (декларативні `states`/`transitions`, що генерують методи-тригери). Стани
+  зручно тримати в `enum.Enum`.
+
+**Реалізація**
+
+```python
+from enum import Enum
+
+class State(Enum):
+    CREATED = "created"
+    PAID = "paid"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+
+# allowed transitions: (current state, event) -> next state
+TRANSITIONS = {
+    (State.CREATED, "pay"): State.PAID,
+    (State.PAID, "ship"): State.SHIPPED,
+    (State.SHIPPED, "deliver"): State.DELIVERED,
+    (State.CREATED, "cancel"): State.CANCELLED,
+    (State.PAID, "cancel"): State.CANCELLED,
+}
+
+def apply(state: State, event: str) -> State:
+    try:
+        return TRANSITIONS[(state, event)]
+    except KeyError:
+        raise ValueError(f"illegal transition: {state.value} -[{event}]->")
+```
+
+**Зв'язок з DDD**
+
+Переходи стану - це інваріанти агрегату, тож їхнє місце - у методах кореня агрегату
+(`order.pay()`, `order.cancel()`), а не в сервісному шарі. Так стан не можна змінити в обхід
+правил. Споріднений патерн GoF - **State**, коли поведінку кожного стану виносять в окремий
+клас замість таблиці переходів.
