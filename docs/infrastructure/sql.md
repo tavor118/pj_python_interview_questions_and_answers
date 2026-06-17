@@ -542,7 +542,7 @@ ROLLBACK;  -- table is back to its original contents
 
 
 
-### Що робить SELECT FOR UPDATE? [❄️5/100]
+### Що робить SELECT FOR UPDATE? [❄️8/100]
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
 що вибираються під час виконання запиту, щоб уникнути конкурентних змін даних.

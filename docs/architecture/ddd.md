@@ -1,6 +1,6 @@
 ## DDD
 
-### Основні принципи DDD [❄️4/100]
+### Основні принципи DDD [❄️5/100]
 
 **Domain-Driven Design (DDD)** — це підхід до проєктування складних програмних систем, 
 спрямований на чітке вираження бізнес-логіки та її ізоляцію від технічних деталей. 
@@ -295,7 +295,7 @@ class TaskResponse:
 
 
 
-### Rich vs Anemic Domain Model [❄️2/100]
+### Rich vs Anemic Domain Model [❄️3/100]
 
 *Summary*
 > **Rich Model** - доменна модель, де бізнес-логіка живе всередині сутностей
@@ -407,7 +407,7 @@ class CancelOrderHandler:
 
 
 
-### Repository vs DAO [❄️2/100]
+### Repository vs DAO [❄️4/100]
 
 *Summary*
 > **Repository** і **DAO** часто плутають, але це два різні патерни.

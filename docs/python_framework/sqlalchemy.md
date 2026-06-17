@@ -1,6 +1,6 @@
 ## SQLAlchemy
 
-### SQLAlchemy: Core та ORM [❄️1/100]
+### SQLAlchemy: Core та ORM [❄️3/100]
 
 *Summary*
 > SQLAlchemy - бібліотека Python для роботи з реляційними базами даних. Має
@@ -99,7 +99,7 @@ Core.
 
 
 
-### Imperative mapping: відокремити доменну сутність від ORM
+### Imperative mapping: відокремити доменну сутність від ORM [❄️1/100]
 
 *Summary*
 > Декларативний стиль (`class User(Base)`) прив'язує доменний клас до SQLAlchemy -
@@ -143,7 +143,7 @@ mapper_registry.map_imperatively(User, user_table)
 
 
 
-### Lazy vs Eager loading: стратегії завантаження relationship [❄️2/100]
+### Lazy vs Eager loading: стратегії завантаження relationship [❄️3/100]
 
 *Summary*
 > `relationship()` у SQLAlchemy за замовчуванням завантажується **ліниво** -
@@ -220,7 +220,7 @@ stmt = select(Post).options(
 
 
 
-### `Session` vs `sessionmaker` [❄️1/100]
+### `Session` vs `sessionmaker` [❄️3/100]
 
 *Summary*
 > `Session` - unit of work, що тримає identity map, трекає зміни і flush'ить
@@ -308,7 +308,7 @@ expire on commit.
 
 
 
-### ORM-об'єкти - не DTO
+### ORM-об'єкти - не DTO [❄️2/100]
 
 *Summary*
 > ORM-екземпляр SQLAlchemy виглядає як `dataclass` (ті самі поля), але це не
