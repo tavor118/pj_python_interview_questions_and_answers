@@ -99,6 +99,28 @@ Core.
 
 
 
+### Active Record проти Data Mapper
+
+*Summary*
+> Два патерни доступу до даних (за Фаулером). **Active Record**: об'єкт-модель сам знає, як
+> себе зберегти - дані й логіка persistence в одному класі (`user.save()`). **Data Mapper**:
+> окремий шар (mapper / session) переносить дані між об'єктом і БД, а доменний об'єкт нічого
+> не знає про сховище. **Django ORM - це Active Record, SQLAlchemy - Data Mapper.**
+
+- **Active Record (Django).** Модель успадковує всю persistence-логіку; `obj.save()`,
+  `obj.delete()`, `Model.objects.filter(...)` живуть на самій моделі. Швидко й зручно для
+  CRUD, але домен злитий з ORM - важче тримати чисту доменну модель і тестувати без БД.
+- **Data Mapper (SQLAlchemy).** Persistence винесено у `Session` (unit of work):
+  `session.add(obj)`, `session.commit()`. Сам клас може лишатися звичайним об'єктом
+  (особливо з imperative mapping - див. нижче), тож домен не залежить від інфраструктури.
+  Ціна - більше церемоній, ніж в Active Record.
+
+Саме тому в Django транзакцію відкривають зовні (`transaction.atomic`), а в SQLAlchemy за
+коміт відповідає `Session` (`session.commit()`): за збереження відповідають різні сутності,
+бо це різні патерни.
+
+
+
 ### Imperative mapping: відокремити доменну сутність від ORM [❄️1/100]
 
 *Summary*
