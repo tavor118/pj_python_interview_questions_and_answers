@@ -1082,3 +1082,50 @@ async def test_tenant_context_not_leaked_across_acquires(pool):
 - [Postgres docs: SET](https://www.postgresql.org/docs/current/sql-set.html) - семантика session vs transaction scope
 - [Postgres docs: set_config()](https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-SET) - програмна форма з `is_local`
 - [pgbouncer pooling modes](https://www.pgbouncer.org/features.html) - несумісність `transaction` pooling із сесійними GUC
+
+
+
+### Пагінація: `OFFSET`/`LIMIT` проти keyset
+
+*Summary*
+> `OFFSET N LIMIT k` змушує БД прочитати й відкинути перші `N` рядків, тому глибокі сторінки 
+> сповільнюються лінійно. Keyset-пагінація (`WHERE id < :last ... LIMIT k`) бере наступну 
+> сторінку по індексу незалежно від глибини.
+
+**`OFFSET`/`LIMIT`**
+
+```sql
+SELECT * FROM events ORDER BY id DESC OFFSET 100000 LIMIT 20;
+```
+
+БД проходить і відкидає 100000 рядків, перш ніж повернути 20. Вартість зростає лінійно з 
+номером сторінки: `OFFSET 100000` читає 100020 рядків. Додатковий ризик - зсув даних: якщо 
+між запитами сторінок рядок додали або видалили, межі сторінок зміщуються (дублікати чи 
+пропуски).
+
+**Keyset (seek) пагінація**
+
+Замість зміщення передають значення останнього рядка попередньої сторінки й беруть наступні 
+по індексу:
+
+```sql
+-- перша сторінка
+SELECT * FROM events ORDER BY id DESC LIMIT 20;
+-- наступна: :last_id - id останнього рядка попередньої сторінки
+SELECT * FROM events WHERE id < :last_id ORDER BY id DESC LIMIT 20;
+```
+
+За наявності індексу на ключі сортування БД одразу переходить до потрібної позиції - 
+вартість сторінки стала, не залежить від глибини. Для сортування за неунікальним полем у 
+ключ додають tie-breaker, щоб порядок був детермінованим:
+
+```sql
+SELECT * FROM events
+WHERE (created_at, id) < (:last_created_at, :last_id)
+ORDER BY created_at DESC, id DESC
+LIMIT 20;
+```
+
+Обмеження keyset: не можна стрибнути на довільну сторінку за номером - лише "наступна/
+попередня" відносно курсора. Тому він підходить для нескінченного скролу та API-курсорів, 
+а не для нумерованих сторінок.

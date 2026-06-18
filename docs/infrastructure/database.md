@@ -1953,3 +1953,40 @@ allow = r.eval(LUA_SCRIPT, 1, "rl:user:123", now_ms, 60_000, 100)  # -> 1 or 0
 *Links*
 
 - [Redis docs - Scripting with Lua](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/)
+
+
+
+### Безпечна зміна схеми великих таблиць (online DDL)
+
+*Summary*
+> `ALTER TABLE` за замовчуванням бере блокування `ACCESS EXCLUSIVE`, а деякі зміни ще й 
+> переписують усю таблицю - на великій таблиці це довге вікно, протягом якого всі запити до 
+> неї чекають. Безпечні зміни уникають перепису й тривалого ексклюзивного блокування.
+
+Це про механіку блокувань у PostgreSQL; про порядок викочування коду й міграцій без 
+простою (expand-and-contract) - див. [`development/ci_cd.md`](../development/ci_cd.md).
+
+**Додавання колонки.** У PostgreSQL ≥ 11 `ADD COLUMN ... DEFAULT <constant>` зберігає дефолт 
+як метадані в каталозі й таблицю не переписує (швидко). Натомість `DEFAULT` з виразом, що 
+обчислюється для кожного рядка (наприклад, `now()`, `random()`), - і будь-який дефолт у 
+PostgreSQL < 11 - переписує всю таблицю під `ACCESS EXCLUSIVE`.
+
+**Додавання `NOT NULL`** на наявну колонку вимагає повного сканування таблиці для перевірки 
+відсутності `NULL`, тримаючи `ACCESS EXCLUSIVE`. Безпечніше - двома кроками:
+
+```sql
+ALTER TABLE t ADD CONSTRAINT t_col_nn CHECK (col IS NOT NULL) NOT VALID;  -- fast, brief lock
+ALTER TABLE t VALIDATE CONSTRAINT t_col_nn;  -- scans without ACCESS EXCLUSIVE
+```
+
+**Індекси.** Звичайний `CREATE INDEX` блокує запис у таблицю на час побудови. 
+`CREATE INDEX CONCURRENTLY` будує індекс, не блокуючи запис (повільніше, не виконується в 
+транзакції, а при збої лишає невалідний індекс, який треба прибрати вручну).
+
+**Backfill** великого обсягу даних роблять **порціями** (batched `UPDATE ... WHERE id 
+BETWEEN ...`), а не одним запитом: довгий `UPDATE` тримає блокування, роздуває таблицю 
+MVCC-версіями й навантажує WAL.
+
+**`lock_timeout`.** Заблокований `ALTER TABLE`, що чекає на `ACCESS EXCLUSIVE`, стає в чергу 
+перед усіма наступними запитами до таблиці - вони теж починають чекати. Встановлення 
+`lock_timeout` дозволяє ALTER швидко відмовитися й повторити пізніше, не блокуючи трафік.
