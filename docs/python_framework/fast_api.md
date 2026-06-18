@@ -17,7 +17,7 @@
 
 
 
-### Що приймає `Depends()` у FastAPI? Якого типу об'єкт це з погляду Python? [❄️4/100]
+### Що приймає `Depends()` у FastAPI? Якого типу об'єкт це з погляду Python? [❄️6/100]
 
 *Summary*
 > `Depends()` приймає будь-який `callable` (функцію, корутину, клас, об'єкт з `__call__`)
@@ -177,7 +177,7 @@ def admin_stats() -> StatsSchema:
 
 
 
-### Sync vs async ендпоінти у FastAPI [❄️5/100]
+### Sync vs async ендпоінти у FastAPI [💡14/100]
 
 *Summary*
 > `async def` handler виконується у тому самому event loop'і ASGI-сервера. `def`
@@ -240,7 +240,7 @@ OS-syscall: scheduler призупиняє один потік, відновлю
 
 
 
-### `BackgroundTasks` у FastAPI [❄️2/100]
+### `BackgroundTasks` у FastAPI [❄️3/100]
 
 *Summary*
 > `BackgroundTasks` - вбудований механізм запуску задач після надсилання
@@ -321,7 +321,7 @@ worker (Celery, RQ, ARQ, Dramatiq) і публікувати завдання у
 
 
 
-### FastAPI під капотом [❄️2/100]
+### FastAPI під капотом [❄️3/100]
 
 *Summary*
 > FastAPI - тонкий шар поверх двох незалежних бібліотек: Starlette (ASGI
@@ -387,7 +387,7 @@ worker (Celery, RQ, ARQ, Dramatiq) і публікувати завдання у
 
 
 
-### Middleware у FastAPI [❄️1/100]
+### Middleware у FastAPI [❄️4/100]
 
 *Summary*
 > FastAPI підтримує два рівні middleware: pure ASGI middleware (рекомендовано
@@ -691,7 +691,7 @@ def get_user(session: Session, user_id: int) -> UserOut:
 
 
 
-### Розгортання FastAPI: Uvicorn, workers [❄️2/100]
+### Розгортання FastAPI: Uvicorn, workers [❄️8/100]
 
 *Summary*
 > FastAPI запускається ASGI-сервером. Канонічний вибір - Uvicorn (опційно
@@ -782,7 +782,7 @@ uvicorn-worker → handler).
 
 
 
-### CPU-bound задачі у FastAPI: коли виносити у Celery [❄️2/100]
+### CPU-bound задачі у FastAPI: коли виносити у Celery [❄️5/100]
 
 *Summary*
 > FastAPI оптимізований під I/O-bound навантаження. Важка CPU-задача (генерація

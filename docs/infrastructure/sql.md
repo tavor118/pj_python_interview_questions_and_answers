@@ -1,6 +1,6 @@
 ## SQL
 
-### Що таке SQL
+### Що таке SQL [❄️1/100]
 
 **SQL (Structured Query Language)** — це мова для роботи з реляційними базами даних,
 що використовується для створення, модифікації, управління та отримання даних.
@@ -128,7 +128,7 @@ CREATE TABLE users (
 
 
 
-### Оператор та види `JOIN` [❄️4/100]
+### Оператор та види `JOIN` [💡14/100]
 
 Оператор `JOIN` в SQL використовується для об'єднання даних з двох або більше таблиць
 на основі визначених умов.
@@ -331,7 +331,7 @@ HAVING COUNT(*) > 5;
 
 
 
-### У чому різниця між операторами `HAVING` та `WHERE`?
+### У чому різниця між операторами `HAVING` та `WHERE`? [❄️1/100]
 
 Оператор `HAVING` використовується у зв'язці з `GROUP BY`, щоб фільтрувати рядки
 на основі агрегатних функцій.
@@ -423,7 +423,7 @@ SELECT column_name FROM table2;
 
 
 
-### `UPSERT`
+### `UPSERT` [❄️1/100]
 
 `UPSERT` (update or insert) у SQL — це операція, яка дозволяє вставляти нові рядки 
 у таблицю або оновлювати існуючі, якщо такі вже присутні.
@@ -453,7 +453,7 @@ DO UPDATE SET
 
 
 
-### `TRUNCATE` vs `DELETE` [❄️2/100]
+### `TRUNCATE` vs `DELETE` [❄️3/100]
 
 *Summary*
 > `DELETE` видаляє рядки по одному за умовою `WHERE`, пише per-row записи в WAL, тригери
@@ -542,7 +542,7 @@ ROLLBACK;  -- table is back to its original contents
 
 
 
-### Що робить SELECT FOR UPDATE? [💡10/100]
+### Що робить SELECT FOR UPDATE? [💡19/100]
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
 що вибираються під час виконання запиту, щоб уникнути конкурентних змін даних.
@@ -731,7 +731,7 @@ FROM students
 
 
 
-### SQL ін'єкції - що таке, як захиститись?
+### SQL ін'єкції - що таке, як захиститись? [❄️3/100]
 
 **SQL-ін'єкції** — це один із найпоширеніших типів атак на базу даних, коли зловмисник 
 вставляє шкідливий SQL-код у запит, що виконується сервером.
@@ -772,7 +772,7 @@ user = User.objects.filter(id=user_input).first()  # ORM escapes input automatic
 - Логування та моніторинг запитів допоможуть вчасно виявити підозрілу активність.
 
 
-### View, Materialised View [❄️2/100]
+### View, Materialised View [❄️3/100]
 
 У SQL **View** (представлення) та **Materialized View** (матеріалізоване представлення) — 
 це способи роботи з даними, що полегшують доступ до складних запитів
@@ -821,7 +821,7 @@ SELECT * FROM monthly_sales; -- Query Materialized View
 
 
 
-### `EXPLAIN` та `EXPLAIN ANALYZE` [❄️5/100]
+### `EXPLAIN` та `EXPLAIN ANALYZE` [💡18/100]
 
 `EXPLAIN` - це команда, яка надає інформацію про план виконання запиту.
 Вона показує, як база даних планує виконати запит, включаючи індекси,
@@ -853,7 +853,7 @@ Seq Scan on employees (cost=0.00..12.50 rows=3 width=100)
 
 
 
-### PostgreSQL Row-Level Security [❄️2/100]
+### PostgreSQL Row-Level Security [❄️3/100]
 
 *Summary*
 > Row-Level Security (RLS) - вбудований у Postgres механізм фільтрації рядків
@@ -1085,7 +1085,7 @@ async def test_tenant_context_not_leaked_across_acquires(pool):
 
 
 
-### Пагінація: `OFFSET`/`LIMIT` проти keyset
+### Пагінація: `OFFSET`/`LIMIT` проти keyset [❄️1/100]
 
 *Summary*
 > `OFFSET N LIMIT k` змушує БД прочитати й відкинути перші `N` рядків, тому глибокі сторінки 

@@ -241,7 +241,7 @@ class DoublyLinkedList:
 
 
 
-### Стек
+### Стек [❄️4/100]
 
 *Summary*
 > **Стек (Stack)** — це структура даних, яка працює за принципом LIFO (Last In, First Out),
@@ -291,7 +291,7 @@ print(stack.size())  # Output: 2
 
 
 
-### Черга
+### Черга [❄️5/100]
 
 *Summary*
 > **Черга (Queue)** — це структура даних, яка працює за принципом FIFO 
