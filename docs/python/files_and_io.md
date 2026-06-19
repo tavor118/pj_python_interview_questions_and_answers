@@ -207,7 +207,7 @@ except BlockingIOError:
 блокуючої функції.
 
 ```python
-# aiofiles під капотом приблизно еквівалентне
+# aiofiles under the hood is roughly equivalent to
 async def read_file(path):
     return await asyncio.to_thread(_blocking_read, path)
 ```

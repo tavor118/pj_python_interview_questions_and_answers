@@ -356,10 +356,10 @@ print(quicksort([10, 5, 2, 3]))
 ```python
 import heapq
 
-# runs - відсортовані файли-відрізки на диску
+# runs - sorted file segments on disk
 with open("run1") as a, open("run2") as b, open("run3") as c:
-    for line in heapq.merge(a, b, c):   # читає по одному рядку з кожного джерела
-        out.write(line)                 # пам'ять - O(k), не O(n)
+    for line in heapq.merge(a, b, c):   # reads one line at a time from each source
+        out.write(line)                 # memory - O(k), not O(n)
 ```
 
 **Застосування: підрахунок унікальних у файлі, більшому за пам'ять.** Якщо тримати

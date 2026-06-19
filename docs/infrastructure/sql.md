@@ -1109,9 +1109,9 @@ SELECT * FROM events ORDER BY id DESC OFFSET 100000 LIMIT 20;
 по індексу:
 
 ```sql
--- перша сторінка
+-- first page
 SELECT * FROM events ORDER BY id DESC LIMIT 20;
--- наступна: :last_id - id останнього рядка попередньої сторінки
+-- next page: :last_id is the id of the last row of the previous page
 SELECT * FROM events WHERE id < :last_id ORDER BY id DESC LIMIT 20;
 ```
 

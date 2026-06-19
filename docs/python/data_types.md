@@ -779,7 +779,7 @@ def add(a: float, b: float) -> float: ...
 @overload
 def add(a: str, b: str) -> str: ...
 
-def add(a, b):           # actual implementation, без @overload
+def add(a, b):           # actual implementation, without @overload
     return a + b
 
 add(1, 2)        # int

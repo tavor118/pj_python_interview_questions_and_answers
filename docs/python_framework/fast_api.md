@@ -708,7 +708,7 @@ uvicorn main:app --reload
 # Production (single host, multiple workers)
 uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 
-# Production (gunicorn з UvicornWorker - кращий control над процесами)
+# Production (gunicorn with UvicornWorker - better process control)
 gunicorn main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8000
 ```
 
@@ -900,7 +900,7 @@ async def handle_validation_error(
     # Hide Pydantic internals (field paths, type names, raw input).
     return JSONResponse(
         status_code=400,
-        content={"error": "invalid_request", "message": "Перевірте поля запиту"},
+        content={"error": "invalid_request", "message": "Check the request fields"},
     )
 ```
 

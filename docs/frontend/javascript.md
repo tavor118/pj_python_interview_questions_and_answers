@@ -16,11 +16,11 @@
 за значенням.
 
 ```javascript
-let bigNumber = 9007199254740991n; // BigInt для великих цілих чисел
+let bigNumber = 9007199254740991n; // BigInt for large integers
 let isActive = true; // Boolean
 let userName = "Alice"; // String
 let result = null; // Null
-let невизначено; // Undefined
+let undefinedVar; // Undefined
 let uniqueId = Symbol("id"); //Symbol
 ```
 

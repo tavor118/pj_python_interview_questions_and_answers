@@ -1037,7 +1037,7 @@ WHERE doctor_id = 1;  -- Anna
 COMMIT;
                                   COMMIT;
 
-Final: нікого на чергуванні
+Final: nobody on call
 ```
 
 Кожна транзакція окремо коректна. Жодна не оновила той самий рядок, що інша.
@@ -1129,10 +1129,10 @@ Total     = 200
 snapshot):
 
 ```
-READ A           -- 100 (до переказу)
-                                       -- паралельна транзакція переказує
-READ B           -- 150 (після переказу)
-Total = 250      -- стан, якого ніколи не існувало
+READ A           -- 100 (before the transfer)
+                                       -- concurrent transaction transfers
+READ B           -- 150 (after the transfer)
+Total = 250      -- a state that never existed
 ```
 
 Жодного dirty read не було - усі читання лише закомічених даних. Проблема в

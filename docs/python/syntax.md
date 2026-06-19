@@ -118,6 +118,26 @@ weeks = days // 7
 print(f"Number of full weeks in {days} days: {weeks}") # Output: Number of full weeks in 23 days: 3
 ```
 
+**Поведінка з від'ємними операндами**
+
+`//` округлює *вниз* (floor), а не до нуля, тому залишок `%` завжди має знак
+дільника. Це відрізняється від C/C++, Java та JavaScript, де ділення відсікається
+до нуля, а залишок успадковує знак діленого, тож там `-11 % 10 == -1`.
+
+```python
+print(-11 // 10)  # -2  (floor division, not toward zero)
+print(-11 % 10)   #  9  (sign of the divisor, not the dividend)
+print(11 % -10)   # -9
+# invariant Python always preserves: a == (a // b) * b + a % b
+```
+
+Якщо потрібен залишок зі знаком діленого (як у C), використовують `math.fmod`:
+
+```python
+import math
+print(math.fmod(-11, 10))  # -1.0
+```
+
 
 
 ### Тернарний оператор в Python

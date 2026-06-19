@@ -715,6 +715,50 @@ SQL: `SELECT ..., EXISTS(SELECT 1 FROM notification WHERE ...) AS has_unread FRO
 
 
 
+### F-вирази: атомарне оновлення на рівні БД
+
+*Summary*
+> `F()` посилається на значення колонки в самій базі, тому оновлення виконується одним
+> `UPDATE ... SET x = x + 1` без читання значення в Python - це усуває гонку
+> read-modify-write між паралельними запитами.
+
+Наївне оновлення читає значення в пам'ять, змінює його і записує назад. Якщо два
+запити роблять це одночасно, один інкремент губиться (lost update):
+
+```python
+# UNSAFE: read-modify-write, race between concurrent requests
+product = Product.objects.get(pk=1)
+product.stock -= 1          # value read into Python
+product.save()              # another request may have changed stock between get() and save()
+```
+
+`F()` переносить обчислення на бік СУБД - Django генерує `UPDATE product SET stock =
+stock - 1 WHERE id = 1`, і атомарність гарантує сама база:
+
+```python
+from django.db.models import F
+
+Product.objects.filter(pk=1).update(stock=F("stock") - 1)  # single atomic UPDATE
+
+# also works at the instance level (applied on save):
+product.stock = F("stock") - 1
+product.save()
+product.refresh_from_db()   # after save the field holds an F-expression, not a number - reload it
+```
+
+`F()` також використовують у `filter` (порівняння двох колонок) і в `annotate`
+(обчислення на льоту):
+
+```python
+# products where more was ordered than is in stock:
+Order.objects.filter(quantity__gt=F("product__stock"))
+```
+
+Обмеження: `F()` не оминає бізнес-логіку в `Model.save()` чи сигнали `pre_save`/`post_save`
+для оновлюваних полів (при `update()` вони взагалі не викликаються), і вираз обчислюється
+в БД, тож типи мають бути сумісними на боці СУБД.
+
+
 ### Що робить `select_for_update`
 
 `select_for_update` є методом в Django ORM, який дозволяє заблокувати вибрані записи бази 

@@ -202,7 +202,7 @@ Kubernetes не має вбудованого Ingress Controller — його т
 (NGINX Ingress Controller, Traefik, HAProxy)
 
 ```
-[Клієнт] --> [Ingress Controller] --> [Service] --> [Pod] --> [Контейнери]
+[Client] --> [Ingress Controller] --> [Service] --> [Pod] --> [Containers]
 ```
 
 - [Розбираємо Kubernetes зрозумілою мовою](https://dou.ua/forums/topic/55156/)

@@ -155,12 +155,12 @@ class DeadLockExample:
 
     def outer_method(self):
         with self.lock:
-            print('Зовнішній метод залоковано')
+            print('outer method locked')
             self.inner_method()
 
     def inner_method(self):
         with self.lock:
-            print('Внутрішній метод залоковано')
+            print('inner method locked')
 
 example = DeadLockExample()
 thread = threading.Thread(target=example.outer_method)
@@ -201,9 +201,9 @@ import time
 
 def worker(name: str):
     with sem:  
-        print(f'{name} отримав доступ')
+        print(f'{name} acquired access')
         time.sleep(1)
-        print(f'{name} звільнив доступ')
+        print(f'{name} released access')
 
 sem = threading.Semaphore(2)
 threads = [threading.Thread(target=worker, args=(f'Thread-{i}',)) for i in range(5)]
@@ -713,31 +713,31 @@ GIL необхідний для забезпечення безпеки пам�
 PyObject*
 _PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f, int throwflag)
 {
-    // оголошення локальних змінних тощо
-    // обчислювальний цикл
+    // local variable declarations, etc.
+    // evaluation loop
     for (;;) {
-        // eval_breaker повідомляє, чи потрібно призупинити виконання байт-коду, наприклад, якщо інший потік запросив GIL
+        // eval_breaker signals whether bytecode execution must pause, e.g. another thread requested the GIL
         if (_Py_atomic_load_relaxed(eval_breaker)) {
-            // eval_frame_handle_pending() призупиняє виконання байт-коду, звільняє GIL і знову очікує доступності GIL
+            // eval_frame_handle_pending() pauses bytecode execution, releases the GIL, then waits for it again
             if (eval_frame_handle_pending(tstate) != 0) {
                 goto error;
             }
         }
 
-        NEXTOPARG(); // отримати наступну інструкцію байт-коду
+        NEXTOPARG(); // fetch the next bytecode instruction
 
         switch (opcode) {
             case TARGET(NOP) {
-                FAST_DISPATCH(); // наступна ітерація
+                FAST_DISPATCH(); // next iteration
             }
             case TARGET(LOAD_FAST) {
-                FAST_DISPATCH(); // наступна ітерація
+                FAST_DISPATCH(); // next iteration
             }
-            // ще 117 блоків case, що відповідають усім можливим кодам операцій
+            // 117 more case blocks covering every possible opcode
         }
-        // обробка помилок
+        // error handling
     }
-    // завершення
+    // cleanup
 }
 ```
 
@@ -761,11 +761,11 @@ import threading
 import time
 
 def run_io_task(name: str):
-    print(f'{name} почав I/O операцію')
+    print(f'{name} started I/O operation')
     time.sleep(2)
-    print(f'{name} закінчив I/O операцію')
+    print(f'{name} finished I/O operation')
 
-threads = [threading.Thread(target=run_io_task, args=(f'Потік-{i}',)) for i in range(4)]
+threads = [threading.Thread(target=run_io_task, args=(f'Thread-{i}',)) for i in range(4)]
 
 for t in threads:
     t.start()
@@ -1084,10 +1084,10 @@ Thread Thread-2 has value: 2
 **Принцип**
 
 C-розширення викликає `Py_BEGIN_ALLOW_THREADS` перед тривалою операцією, яка не
-торкається Python-обʼєктів (компресія буфера, шифрування, обчислення хешу,
+торкається Python-об'єктів (компресія буфера, шифрування, обчислення хешу,
 векторна арифметика над `ndarray`). Поки GIL відпущений, інтерпретатор віддає
 його іншому потоку. Після завершення обчислення розширення викликає
-`Py_END_ALLOW_THREADS` і чекає GIL, щоб повернути результат як Python-обʼєкт.
+`Py_END_ALLOW_THREADS` і чекає GIL, щоб повернути результат як Python-об'єкт.
 
 З Python-боку це невидимо - просто виклик `func(buf)` блокує потік на час C-роботи,
 але **не** утримує GIL.
@@ -1099,7 +1099,7 @@ C-розширення викликає `Py_BEGIN_ALLOW_THREADS` перед тр
 - **`zlib`, `gzip`, `bz2`, `lzma`** - компресія/декомпресія блоків.
 - **NumPy** - векторні операції над `ndarray` (`np.sum`, `np.dot`, `np.linalg.*`,
   ufunc'и). Pure-Python ітерація через `for x in arr` - **не** відпускає, бо
-  кожен елемент проходить через Python-обʼєкт.
+  кожен елемент проходить через Python-об'єкт.
 - **Pandas** - частина агрегацій через NumPy під капотом; `.apply(func)` з
   Python-функцією - утримує GIL.
 - **Pillow** - перетворення зображень (`resize`, `convert`, `filter`, `save` у
