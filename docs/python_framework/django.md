@@ -824,6 +824,38 @@ with transaction.atomic():
 
 
 
+### Відкладені задачі та `transaction.on_commit`
+
+*Summary*
+> Задачу, поставлену в чергу всередині `transaction.atomic()`, воркер може почати ДО коміту і не
+> побачити ще не закомічений рядок. Реєструють її через `transaction.on_commit`, щоб вона
+> запустилася лише після успішного коміту.
+
+Класична помилка - поставити Celery-задачу одразу після створення об'єкта в транзакції:
+
+```python
+from django.db import transaction
+
+with transaction.atomic():
+    order = Order.objects.create(...)
+    send_confirmation.delay(order.id)   # UNSAFE: worker may start before commit -> Order.DoesNotExist
+```
+
+Воркер - окремий процес; він може дістати завдання з брокера раніше, ніж транзакція закомітиться,
+і не знайде рядок. Рішення - відкласти постановку до коміту:
+
+```python
+with transaction.atomic():
+    order = Order.objects.create(...)
+    transaction.on_commit(lambda: send_confirmation.delay(order.id))
+```
+
+Те саме стосується сигналів: `post_save` спрацьовує **всередині** транзакції (синхронно, до
+коміту). Якщо обробник ставить задачу чи покладається на вже закомічені дані - його логіку теж
+загортають у `transaction.on_commit`.
+
+
+
 ### Request - Response lifecycle [❄️3/100]
 
 У Django запит представлено як екземпляр класу `HttpRequest`. Об'єкт `HttpRequest` 
