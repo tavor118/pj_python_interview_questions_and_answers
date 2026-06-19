@@ -60,6 +60,33 @@ def printable():
 Контекстні менеджери також можна використовувати для тимчасової заміни параметрів, 
 змінних середовища, транзакцій БД.
 
+**Асинхронний контекстний менеджер.** Для ресурсів, вхід/вихід яких є awaitable (мережеве 
+з'єднання, пул БД, сесія `aiohttp`), використовують `async with`. Менеджер реалізує 
+`__aenter__` / `__aexit__` (обидва - корутини) або функцію огортають у `@asynccontextmanager` 
+з `contextlib`.
+
+```python
+from contextlib import asynccontextmanager
+
+class AsyncResource:
+    async def __aenter__(self):
+        await self.connect()
+        return self
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
+@asynccontextmanager
+async def resource():
+    conn = await connect()
+    try:
+        yield conn
+    finally:
+        await conn.close()
+
+async with resource() as conn:   # works only inside an async function
+    ...
+```
+
 
 
 ### Що таке простори імен в Python? LEGB

@@ -2,7 +2,7 @@
 
 ### KISS [❄️2/100]
 
-Принцип **Keep It Stupid Simple** (Зберігайте це простим, Притримуйтесь простоти) вимагає,
+Принцип **Keep It Simple, Stupid** (Зберігайте це простим, Притримуйтесь простоти) вимагає,
 щоб код був максимально простим. 
 Чим простіший код, тим легше розібратися в ньому як автору, так і іншим людям, 
 що займаються його підтримкою. 
@@ -193,3 +193,31 @@ print(order.calculate_total_price())  # Output: 2.0
 TDD особливо корисний при написанні додаткового функціоналу до вже існуючого коду, 
 або при виправленні багів, оскільки ми спочатку пишемо тести, які падають,
 а потім відповідний код, який це виправляє.
+
+
+
+### Каталог патернів проектування (GoF)
+
+*Summary*
+> 23 патерни "Банди чотирьох" (Gang of Four) поділені на три групи за призначенням:
+> **породжувальні** (як створювати об'єкти), **структурні** (як компонувати об'єкти у
+> більші структури), **поведінкові** (як об'єкти взаємодіють і розподіляють відповідальність).
+
+- **Породжувальні (Creational):** Abstract Factory, Builder, Factory Method, Prototype, Singleton.
+- **Структурні (Structural):** Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy.
+- **Поведінкові (Behavioral):** Chain of Responsibility, Command, Interpreter, Iterator, Mediator, Memento, Observer, State, Strategy, Template Method, Visitor.
+
+**Застереження для Python.** Частина GoF-патернів у Python вироджується або замінюється
+мовними засобами, бо функції та класи - об'єкти першого класу:
+
+- Factory Method / Abstract Factory часто зводяться до передачі самого класу як callable.
+- Strategy - до передачі функції.
+- Iterator - до протоколу `__iter__` / генераторів.
+- Структурний GoF-Decorator **не плутати** із синтаксисом `@decorator` (це різні поняття).
+
+```python
+def process(data, strategy):       # strategy is just a callable
+    return strategy(data)
+
+process([3, 1, 2], sorted)         # pass behavior as a first-class object
+```
