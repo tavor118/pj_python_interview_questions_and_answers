@@ -259,6 +259,39 @@ FROM orders
 WHERE customer_id IN (SELECT customer_id FROM customers WHERE customer_type = 'premium');
 ```
 
+**Загальні табличні вирази (CTE).** Конструкція `WITH` виносить підзапит у іменований 
+тимчасовий результат, на який далі посилається основний запит. На відміну від вкладеного 
+підзапиту, CTE робить запит читабельнішим і дозволяє повторно використати той самий проміжний 
+набір кілька разів.
+
+```sql
+WITH premium AS (
+    SELECT customer_id FROM customers WHERE customer_type = 'premium'
+)
+SELECT order_id, customer_id FROM orders
+WHERE customer_id IN (SELECT customer_id FROM premium);
+```
+
+**Рекурсивні CTE (`WITH RECURSIVE`).** Обходять ієрархічні чи графові дані - дерево категорій, 
+граф підлеглих, структуру коментарів. CTE складається з якірного запиту (базові рядки) та 
+рекурсивного, який посилається на сам CTE і приєднується через `UNION ALL`, доки не перестане 
+повертати нові рядки.
+
+```sql
+WITH RECURSIVE subordinates AS (
+    SELECT id, name, manager_id FROM employees WHERE id = 1   -- anchor
+    UNION ALL
+    SELECT e.id, e.name, e.manager_id
+    FROM employees e
+    JOIN subordinates s ON e.manager_id = s.id                -- recursive member
+)
+SELECT * FROM subordinates;
+```
+
+У PostgreSQL глибина рекурсії за замовчуванням не обмежена (нескінченний цикл доводиться 
+переривати умовою самостійно); MS SQL Server ставить ліміт `OPTION (MAXRECURSION 100)`, який 
+за потреби змінюють.
+
 
 
 ### Агрегатні функції і `GROUP BY`
@@ -379,6 +412,14 @@ SELECT column_name FROM table1
 UNION ALL
 SELECT column_name FROM table2;
 ```
+
+**`INTERSECT` та `EXCEPT`.** Поряд із `UNION` стандарт SQL визначає ще два множинні 
+оператори. `INTERSECT` повертає лише рядки, присутні в обох наборах результатів, а `EXCEPT` 
+(в Oracle - `MINUS`) - рядки першого набору, яких немає в другому. Обидва, як і `UNION`, 
+прибирають дублікати (форми `... ALL` зберігають їх) і вимагають однакової кількості та 
+сумісних типів стовпців. У MySQL `INTERSECT`/`EXCEPT` доступні лише з версії 8.0.31; у 
+старіших версіях їх емулюють через `INNER JOIN` та `LEFT JOIN ... WHERE ... IS NULL` 
+відповідно.
 
 
 
@@ -735,9 +776,19 @@ FROM students
 без пропуску дублікатів оцінок.
 
 ```sql
-sqlCopy code
 SELECT id, name, score, DENSE_RANK() OVER (ORDER BY score DESC) AS dense_rank_num
 FROM students
+```
+
+`LAG()` та `LEAD()`
+Повертають значення попереднього (`LAG`) або наступного (`LEAD`) рядка вікна без self-join. 
+Зручні для порівняння рядка із сусіднім - наприклад, різниця виторгу день-до-дня чи приріст 
+відносно попереднього запису.
+
+```sql
+SELECT day, revenue,
+       revenue - LAG(revenue) OVER (ORDER BY day) AS delta_vs_prev_day
+FROM daily_sales
 ```
 
 

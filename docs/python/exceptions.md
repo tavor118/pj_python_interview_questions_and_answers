@@ -219,6 +219,34 @@ exception, another exception occurred:").
 
 
 
+### `ExceptionGroup` та `except*` (Python 3.11)
+
+*Summary*
+> `ExceptionGroup` об'єднує кілька винятків в один об'єкт, а синтаксис `except*` ловить із 
+> групи лише винятки потрібних типів, не зачіпаючи решту.
+
+Іноді операція породжує не один виняток, а кілька одночасно - наприклад, конкурентні задачі в 
+`asyncio.TaskGroup`, де впало кілька корутин. Щоб не втрачати частину помилок, їх загортають у 
+`ExceptionGroup` (для винятків, похідних від `BaseException`, - як `KeyboardInterrupt` чи 
+`GeneratorExit` - у `BaseExceptionGroup`).
+
+Розгортають групу синтаксисом `except*`: кожен блок ловить лише винятки заявленого класу, а ті, 
+що не підійшли, лишаються в групі й можуть бути оброблені іншим `except*` або прокинуті далі.
+
+```python
+try:
+    raise ExceptionGroup("multiple failures", [ValueError("bad"), TypeError("oops")])
+except* ValueError as eg:
+    print("value errors:", eg.exceptions)
+except* TypeError as eg:
+    print("type errors:", eg.exceptions)
+```
+
+У межах одного `try` не можна змішувати `except*` і звичайний `except` - або всі обробники 
+групові, або всі звичайні.
+
+
+
 ### Для чого потрібен блок `else` [❄️3/100]
 
 Блок `else` виконується, якщо під час виконання блоку `try` не виникло винятків. 

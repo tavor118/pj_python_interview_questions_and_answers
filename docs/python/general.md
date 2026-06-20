@@ -202,6 +202,30 @@ class MyClass(BaseClass, metaclass=Singleton):
 Недоліки
 - Немає
 
+**Модуль**
+
+Найпростіший спосіб у Python - винести об'єкт на рівень модуля. Сам модуль уже є singleton: 
+інтерпретатор імпортує його лише раз і кешує в `sys.modules`, тож скільки б разів його не 
+імпортували, повертається той самий об'єкт зі станом.
+
+```python
+# config.py
+class _Config:
+    ...
+
+config = _Config()   # initialized once at import time
+```
+
+Переваги
+
+- Не потрібні ні метакласи, ні `__new__`, ні декоратор.
+Недоліки
+- Об'єкт створюється при імпорті (eager), а не ліниво.
+
+**Singleton проти "well-known object".** Класичний singleton - це клас, що завжди повертає той 
+самий екземпляр. Об'єкти на кшталт `None`, `True`, `False` - не зовсім singleton'и, а 
+"well-known objects": це не клас, а конкретний унікальний об'єкт, гарантовано один на процес.
+
 *Links*
 
 - [Creating a singleton in Python](https://stackoverflow.com/questions/6760685/creating-a-singleton-in-python)
