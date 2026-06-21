@@ -1103,6 +1103,75 @@ async def call(service: str, coro):
 
 
 
+### Cache Stampede (Dogpile effect)
+
+*Summary*
+> Cache stampede (Dogpile effect) - ситуація, коли "гарячий" ключ кешу спливає і
+> багато паралельних запитів одночасно промахуються повз кеш, після чого кожен
+> іде перераховувати те саме значення у БД. Раптовий сплеск ідентичних запитів
+> перевантажує джерело даних. Захист: single-flight (перераховує лише один),
+> ймовірнісне раннє оновлення та stale-while-revalidate.
+
+**Принцип роботи**
+
+Кеш тримає значення під ключем з обмеженим TTL. Поки ключ присутній, запити
+обслуговуються з кешу і до БД не доходять. У момент спливу TTL ключ зникає; усі
+запити, що надходять до завершення першого перерахунку, дають cache miss і
+паралельно звертаються до джерела. Чим популярніший ключ, тим більший синхронний
+сплеск навантаження на БД - аж до каскадної деградації, коли повільні відповіді
+подовжують вікно, протягом якого накопичуються нові промахи.
+
+**Стратегії пом'якшення**
+
+- **Single-flight (lock на перерахунок).** Першому промаху видається короткий
+  замок; він перераховує значення і кладе у кеш, решта або чекають результату,
+  або миттєво отримують застаріле. Реалізується атомарним `SET key NX` у Redis
+  (див. [Distributed Lock](#distributed-lock)).
+- **Probabilistic early expiration (XFetch).** Кожен читач із малою, зростаючою
+  до TTL імовірністю перераховує значення *до* спливу. Перерахунок виконує один
+  випадковий запит на теплому кеші, тож синхронного промаху не виникає.
+- **Stale-while-revalidate.** Після спливу деякий час віддають застаріле значення,
+  а оновлення запускають асинхронно у фоні. Запити не блокуються і не б'ють у БД
+  одночасно.
+- **Staggered TTL / jitter.** До TTL додають випадкове відхилення, щоб масово
+  записані ключі не спливали в одну мить - той самий прийом, що й jitter у
+  [Retry pattern](#retry-pattern).
+
+**Реалізація**
+
+```python
+# Single-flight via Redis lock: one request recomputes, others serve stale/retry
+async def get_or_recompute(redis, key, ttl, recompute):
+    value = await redis.get(key)
+    if value is not None:
+        return value
+    lock = f"{key}:lock"
+    if await redis.set(lock, "1", nx=True, ex=10):  # winner recomputes
+        try:
+            value = await recompute()
+            await redis.set(key, value, ex=ttl)
+            return value
+        finally:
+            await redis.delete(lock)
+    await asyncio.sleep(0.05)                        # losers briefly back off
+    return await redis.get(key) or await recompute()
+```
+
+**Нюанси**
+
+- Cache stampede - окремий випадок **thundering herd**: синхронний сплеск
+  ідентичних дій. Відрізняється від retry storm, де сплеск дають повтори
+  провалених викликів, а не сплив кешу.
+- Single-flight вводить точку серіалізації: якщо перерахунок довгий, очікувачі
+  накопичуються. Комбінують зі stale-while-revalidate, щоб не блокувати читачів.
+
+*Links*
+
+- [The Dogpile effect (Wikipedia: cache stampede)](https://en.wikipedia.org/wiki/Cache_stampede)
+- [Optimal Probabilistic Cache Stampede Prevention (VLDB, XFetch)](https://www.vldb.org/pvldb/vol8/p886-vattani.pdf)
+
+
+
 ### Як зрозуміти, що застосунок зламався? [💡10/100]
 
 *Summary*
