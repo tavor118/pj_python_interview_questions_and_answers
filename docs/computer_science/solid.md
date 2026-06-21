@@ -1,6 +1,6 @@
 ## Принципи SOLID
 
-### Що таке SOLID [💡13/100]
+### Що таке SOLID [🔥37/100]
 
 *Summary*
 > П'ять принципів ООП-дизайну (SRP, OCP, LSP, ISP, DIP) для систем, що довго
@@ -51,7 +51,7 @@ Design Patterns" 2000 р.), а сам акронім запропонував М
 
 
 
-### S - Single Responsibility Principle [💡15/100]
+### S - Single Responsibility Principle [🔥30/100]
 
 *Summary*
 > У модуля - одна причина для зміни: він відповідає перед одним актором (групою
@@ -134,7 +134,7 @@ def save_report_csv(report: ReportData, path: str) -> None:       # export.py - 
 
 
 
-### O - Open-Closed Principle [❄️8/100]
+### O - Open-Closed Principle [💡17/100]
 
 *Summary*
 > Сутність відкрита для розширення, але закрита для зміни: нову поведінку додають
@@ -189,7 +189,7 @@ def calculate_total(price: float, apply: DiscountStrategy) -> float:
 
 
 
-### L - Liskov Substitution Principle [❄️9/100]
+### L - Liskov Substitution Principle [💡19/100]
 
 *Summary*
 > Нащадка можна скрізь підставити замість базового класу, і код працюватиме так
@@ -255,7 +255,7 @@ migrate_south([Duck(), RubberDuck()])  # NotImplementedError
 
 
 
-### I - Interface Segregation Principle [❄️5/100]
+### I - Interface Segregation Principle [💡10/100]
 
 *Summary*
 > Кілька вузьких інтерфейсів кращі за один товстий: клієнт не повинен залежати від
@@ -337,7 +337,7 @@ def send_email(user_id: int, storage: UserReader):   # depends only on read capa
 
 
 
-### D - Dependency Inversion Principle [💡10/100]
+### D - Dependency Inversion Principle [💡22/100]
 
 *Summary*
 > Бізнес-логіка залежить від абстракції, а не від конкретної інфраструктури (БД,

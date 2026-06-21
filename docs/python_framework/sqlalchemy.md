@@ -1,6 +1,6 @@
 ## SQLAlchemy
 
-### SQLAlchemy: Core та ORM [❄️8/100]
+### SQLAlchemy: Core та ORM [💡15/100]
 
 *Summary*
 > SQLAlchemy - бібліотека Python для роботи з реляційними базами даних. Має
@@ -99,7 +99,7 @@ Core.
 
 
 
-### Active Record проти Data Mapper [❄️3/100]
+### Active Record проти Data Mapper [❄️4/100]
 
 *Summary*
 > Два патерни доступу до даних (за Фаулером). **Active Record**: об'єкт-модель сам знає, як
@@ -165,7 +165,7 @@ mapper_registry.map_imperatively(User, user_table)
 
 
 
-### Lazy vs Eager loading: стратегії завантаження relationship [❄️4/100]
+### Lazy vs Eager loading: стратегії завантаження relationship [❄️5/100]
 
 *Summary*
 > `relationship()` у SQLAlchemy за замовчуванням завантажується **ліниво** -
@@ -452,7 +452,7 @@ session-scoped GUC).
 
 
 
-### Прогрів пула (pool warm-up) [❄️1/100]
+### Прогрів пула (pool warm-up) [❄️2/100]
 
 *Summary*
 > Прогрів пула - явне відкриття `pool_size` з'єднань до того, як прийде
