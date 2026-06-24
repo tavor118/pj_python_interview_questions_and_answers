@@ -527,11 +527,49 @@ retry, circuit breaker - від бізнес-логіки і віддає узг
 закривають доступ до свого сховища, Gateway - до зовнішнього світу, а Repository
 може збирати доменну сутність із кількох таких джерел.
 
+**Каталог патернів доступу (Fowler PoEAA)**
+
+Повний каталог патернів роботи зі сховищем ділиться на дві групи. Перша **відділяє**
+операції від даних і може повністю приховати організацію сховища: **DAO** (Table Data
+Gateway) повертає RecordSet/DTO без логіки й без стану; **Data Mapper** робить
+двосторонню синхронізацію моделей зі сховищем (може містити Identity Map);
+**Repository** - це Data Mapper для кореневих сутностей. Друга група **змішує** дані й
+роботу зі сховищем: **Row Data Gateway** (екземпляр на рядок плюс окремий Finder) і
+**Active Record** (Row Data Gateway з бізнес-логікою, не абстрагований від сховища).
+
+Багато Python-ORM реалізують Active Record (з неявним контролем з'єднань і транзакцій),
+тоді як SQLAlchemy - Data Mapper (вищий рівень абстракції, `map_imperatively`); деталі -
+[Active Record проти Data Mapper](../python_framework/sqlalchemy.md). Звідси й поділ
+підходів: орієнтація на **стан у пам'яті** (Active Record / Data Mapper / Unit of Work:
+завантажити -> змінити -> зберегти; спрощує тестування, але потребує Identity Map і
+блокувань) проти орієнтації на **дії над станом у БД** (DAO: ефективніше, але частина
+логіки переїжджає в запити).
+
+**Generic Repository як анти-патерн**
+
+Узагальнений `Repository[T]` з готовим CRUD-набором (`get_all`, `find_by`, `add`,
+`update`, `delete`) виглядає зручно, але (за Беном Моррісом) це **протікаюча
+абстракція**: обгортка над ORM пропускає залежність від технології у прикладний код, по
+суті нічого не приховуючи. Вона **занадто узагальнена** (мало моделей обслуговуються
+однаковим набором методів) і дає **беззмістовний контракт**:
+
+```python
+def find(self, query: Any) -> Iterable[T]: ...                        # meaningless contract
+def find_customer_by_name(self, name: str) -> Iterable[Customer]: ...  # clear contract
+```
+
+Специфічні репозиторії з осмисленими методами кращі; узагальнений доречний лише як
+внутрішня деталь реалізації конкретного репозиторію (через вкладення), де дає
+перевикористання коду без втрати чіткого контракту.
+
 *Links*
 
 - [Martin Fowler: PoEAA - Repository](https://martinfowler.com/eaaCatalog/repository.html) - канонічний опис патерну
 - [Vaughn Vernon: Implementing DDD - Repositories chapter](https://www.amazon.com/Implementing-Domain-Driven-Design-Vaughn-Vernon/dp/0321834577) - збереження aggregate'ів
 - [Microsoft docs: Designing the infrastructure persistence layer (DDD)](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/infrastructure-persistence-layer-design)
+- [Patterns Implemented by SQLAlchemy (Mike Bayer)](https://techspot.zzzeek.org/2012/02/07/patterns-implemented-by-sqlalchemy/)
+- [Martin Fowler: PoEAA - Data Mapper](https://martinfowler.com/eaaCatalog/dataMapper.html)
+- [Ben Morris: Why the generic repository is just a lazy anti-pattern](https://www.ben-morris.com/why-the-generic-repository-is-just-a-lazy-anti-pattern/)
 
 
 
@@ -1103,6 +1141,24 @@ class BillingACL:
 - Інтеграція з legacy чи зовнішнім API, який ми не контролюємо.
 - Upstream-команда диктує свій формат, а ми хочемо ізолювати свій домен від його змін.
 - Потрібно адаптувати кілька різних upstream-постачальників до однієї внутрішньої моделі.
+
+**Анатомія ACL.** Усередині ACL зазвичай виділяють кілька частин:
+
+- **Інтерфейси й моделі даних** з боку бізнес-логіки - вимоги до взаємодії,
+  виражені у власних термінах, лише про потрібні аспекти зовнішньої системи.
+- **Клієнтський фасад** - тонка обгортка над чужим API, виражена в **термінах
+  чужої системи**. Спрощує читабельність зовнішнього API (суворіші типи,
+  конкретніші сигнатури, групування викликів), але не транслює виклики в доменні
+  сутності. Якщо чужий API вже достатньо зручний, фасад не потрібен.
+- **Адаптер** - реалізує власний інтерфейс через виклики фасаду; перекладає виклики
+  з власних термінів у чужі. На одне звернення може робити кілька викликів чужого API.
+- **Транслятори** - перетворюють форму даних між моделями; окремі об'єкти або методи
+  адаптера.
+
+ACL перекладає **словник домену**, а не протокол: це не проміжний шар про HTTP чи
+формати серіалізації, а доменно-обізнаний переклад чужої мови у власну на межі
+застосунку.
+
 
 
 ### Open Host Service (OHS) і Published Language [❄️2/100]
