@@ -221,6 +221,11 @@ config = _Config()   # initialized once at import time
 - Не потрібні ні метакласи, ні `__new__`, ні декоратор.
 Недоліки
 - Об'єкт створюється при імпорті (eager), а не ліниво.
+- Змінний глобальний об'єкт зв'язує віддалені частини коду: тести перестають бути незалежними,
+  бо поділяють спільний стан (приклади у stdlib - `os.environ`, `logging.root`).
+- I/O при імпорті - анти-патерн: помилка під час імпорту критичніша за помилку під час виконання
+  (логування й головний `try/except` ще не активні), а модуль можуть імпортувати, але так і не
+  викликати. Тому side-effect'и (відкриття файлів, сокетів) відкладають до першого виклику.
 
 **Singleton проти "well-known object".** Класичний singleton - це клас, що завжди повертає той 
 самий екземпляр. Об'єкти на кшталт `None`, `True`, `False` - не зовсім singleton'и, а 
@@ -229,6 +234,44 @@ config = _Config()   # initialized once at import time
 *Links*
 
 - [Creating a singleton in Python](https://stackoverflow.com/questions/6760685/creating-a-singleton-in-python)
+- [python-patterns.guide: The Global Object Pattern](https://python-patterns.guide/python/module-globals/)
+
+
+
+### Prebound-методи: спільний стан між функціями рівня модуля
+
+*Summary*
+> Модуль створює один прихований екземпляр класу й виставляє його зв'язані методи як функції
+> верхнього рівня. Виклики `random.random()` і `random.seed()` працюють як окремі функції, але
+> насправді поділяють стан одного схованого об'єкта `Random`.
+
+Іноді модуль має запропонувати кілька функцій верхнього рівня, які поділяють спільний стан.
+Замість розрізнених глобальних змінних і функцій, що їх читають, стан і поведінку загортають у
+клас, створюють один екземпляр при імпорті й присвоюють його зв'язані методи іменам модуля:
+
+```python
+class _Random8:
+    def __init__(self): self.seed = 1
+    def set_seed(self, value): self.seed = value
+    def random(self): self.seed = (self.seed * 1103515245 + 12345) & 0xFF; return self.seed
+
+_instance = _Random8()       # one hidden instance, private name
+random = _instance.random    # bound methods exposed as module-level callables
+set_seed = _instance.set_seed
+```
+
+Клієнтський код звертається до `random()` і `set_seed()` як до звичайних функцій, але вони приховано
+поділяють стан спільного екземпляра - без потреби передавати об'єкт явно. Саме так влаштований
+модуль `random`: глобальні `random()`, `randint()`, `choice()` - це зв'язані методи єдиного
+прихованого екземпляра `Random`. Той самий прийом - `reprlib.repr`, частина `calendar`, `secrets`.
+
+Прийом доречний лише для легких об'єктів: створення екземпляра при імпорті не має робити I/O чи
+інші side-effect'и (та сама засторога, що й для глобальних об'єктів вище). Імена присвоюють явним
+списком, а не циклом з інтроспекції - "explicit is better than implicit".
+
+*Links*
+
+- [python-patterns.guide: The Prebound Method Pattern](https://python-patterns.guide/python/prebound-methods/)
 
 
 
