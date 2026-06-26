@@ -168,6 +168,7 @@ requests_per_hour = rps * 3600  # approximate hourly requests   -> useful
     - прибирається умовна логіка (if, switch)
     - код стає розширюваним без змін у старому
     - досягається принцип OCP - open for extension, closed for modification
+  - Багато GoF-патернів - застосування цього принципу: Strategy, State, Command і Composite виносять розгалуження за типом у поліморфні класи замість `if`/`switch` (пор. Indirection вище - Adapter, Decorator, Proxy, Facade).
 * **Protected Variations**: захищає систему від змін у компонентах, використовуючи абстракції, захистити компоненти системи від змін інших частин. 
   - Суть
     - Ізолювати ділянки, що потенційно змінюються, стабільними абстракціями.
@@ -246,6 +247,9 @@ TDD особливо корисний при написанні додатков
 - **Породжувальні (Creational):** Abstract Factory, Builder, Factory Method, Prototype, Singleton.
 - **Структурні (Structural):** Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy.
 - **Поведінкові (Behavioral):** Chain of Responsibility, Command, Interpreter, Iterator, Mediator, Memento, Observer, State, Strategy, Template Method, Visitor.
+
+Розбір кожного патерну окремо (призначення, принцип роботи, приклад на Python) -
+[`computer_science/design_patterns.md`](design_patterns.md).
 
 **Застереження для Python.** Частина GoF-патернів у Python вироджується або замінюється
 мовними засобами, бо функції та класи - об'єкти першого класу:

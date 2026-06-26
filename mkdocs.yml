@@ -39,6 +39,7 @@ nav:
     - computer_science.md
     - OOP: computer_science/oop.md
     - Programming Principles: computer_science/programming_principles.md
+    - Design Patterns (GoF): computer_science/design_patterns.md
     - SOLID: computer_science/solid.md
     - Data Structures: computer_science/data_structures.md
     - Algorithms: computer_science/algorithmes.md
