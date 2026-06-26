@@ -192,7 +192,7 @@ print("Random number in range [0, 20) with step 2:", random_range)
 
 
 
-### Модуль `datetime` [❄️3/100]
+### Модуль `datetime`
 
 `datetime` — це модуль у Python, який надає класи для роботи з датами та часом.
 
@@ -663,7 +663,7 @@ trace()  # Output: FrameInfo(filename='your_script.py', lineno=..., function='tr
 ```
 
 
-### `@lru_cache` [❄️4/100]
+### `@lru_cache`
 
 **LRU (least recently used)** — це алгоритм, при якому виштовхуються значення, 
 які найдовше не запитувалися. 

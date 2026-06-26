@@ -1,6 +1,6 @@
 ## SQL
 
-### Що таке SQL [❄️4/100]
+### Що таке SQL
 
 **SQL (Structured Query Language)** — це мова для роботи з реляційними базами даних,
 що використовується для створення, модифікації, управління та отримання даних.
@@ -21,7 +21,7 @@ SELECT * FROM users WHERE age > 18 ORDER BY name ASC;
 
 
 
-### Оператори `SELECT`, `INSERT`, `UPDATE` та `DELETE` [❄️4/100]
+### Оператори `SELECT`, `INSERT`, `UPDATE` та `DELETE`
 
 Призначення операторів
 
@@ -62,7 +62,7 @@ DELETE FROM table_name WHERE condition
 
 
 
-### SQL Constraints [💡12/100]
+### SQL Constraints [💡13/100]
 
 **Обмеження (Constraints)** використовуються для визначення правил для даних у таблиці.
 
@@ -83,7 +83,7 @@ DELETE FROM table_name WHERE condition
 
 
 
-### PK - Primary Key, FK -Foreign Key, UNIQUE - Unique constraint [❄️5/100]
+### PK - Primary Key, FK -Foreign Key, UNIQUE - Unique constraint
 
 **Primary Key (Первинний Ключ)** - це унікальний ідентифікатор (стовпець або комбінація 
 стовпців), який визначає конкретний запис в базі даних.
@@ -151,7 +151,7 @@ CREATE TABLE users (
 
 
 
-### Оператор та види `JOIN` [🔥39/100]
+### Оператор та види `JOIN` [🔥40/100]
 
 Оператор `JOIN` в SQL використовується для об'єднання даних з двох або більше таблиць
 на основі визначених умов.
@@ -243,7 +243,7 @@ LEFT JOIN LATERAL (
 
 
 
-### Підзапити [❄️6/100]
+### Підзапити
 
 **Підзапити SQL** - це запити, вкладені всередині інших запитів.
 
@@ -328,7 +328,7 @@ SELECT EXISTS (SELECT 1 FROM orders WHERE user_id = 42);
 
 
 
-### Агрегатні функції і `GROUP BY` [💡13/100]
+### Агрегатні функції і `GROUP BY` [💡14/100]
 
 Агрегатні функції SQL використовуються для обчислення агрегатних значень на основі даних
 в стовпцях таблиці. 
@@ -407,7 +407,7 @@ HAVING COUNT(*) > 5;
 
 
 
-### У чому різниця між операторами `HAVING` та `WHERE`? [❄️9/100]
+### У чому різниця між операторами `HAVING` та `WHERE`? [💡10/100]
 
 Оператор `HAVING` використовується у зв'язці з `GROUP BY`, щоб фільтрувати рядки
 на основі агрегатних функцій.
@@ -424,7 +424,7 @@ HAVING total_employees > 10;
 
 
 
-### `UNION` та `UNION ALL` [❄️4/100]
+### `UNION` та `UNION ALL`
 
 `UNION` та `UNION ALL` використовуються для об’єднання результатів кількох запитів у один набір даних.
 
@@ -457,7 +457,7 @@ SELECT column_name FROM table2;
 
 
 
-### Функції в SQL [❄️8/100]
+### Функції в SQL
 
 Рядкові функції
 
@@ -509,7 +509,7 @@ SELECT column_name FROM table2;
 
 
 
-### `UPSERT` [❄️1/100]
+### `UPSERT`
 
 `UPSERT` (update or insert) у SQL — це операція, яка дозволяє вставляти нові рядки 
 у таблицю або оновлювати існуючі, якщо такі вже присутні.
@@ -539,7 +539,7 @@ DO UPDATE SET
 
 
 
-### `TRUNCATE` vs `DELETE` [❄️4/100]
+### `TRUNCATE` vs `DELETE`
 
 *Summary*
 > `DELETE` видаляє рядки по одному за умовою `WHERE`, пише per-row записи в WAL, тригери
@@ -628,7 +628,7 @@ ROLLBACK;  -- table is back to its original contents
 
 
 
-### Що робить SELECT FOR UPDATE? [💡22/100]
+### Що робить SELECT FOR UPDATE? [💡23/100]
 
 `SELECT FOR UPDATE` – це SQL-конструкція, яка використовується для блокування рядків,
 що вибираються під час виконання запиту, щоб уникнути конкурентних змін даних.
@@ -695,7 +695,7 @@ MVCC і retry з exponential backoff + jitter) - див.
 
 
 
-### Що таке віконні функції і як вони працюють? [❄️7/100]
+### Що таке віконні функції і як вони працюють?
 
 **Віконні функції** - це засіб в SQL, який дозволяє виконувати обчислення на підмножині 
 рядків з результатами запиту і керувати їх порядком та групуванням.
@@ -761,7 +761,7 @@ ORDER BY
 
 
 
-### Агрегатні віконні функції `ROW_NUMBER`, `RANK`, `DENSE_RANK` [❄️2/100]
+### Агрегатні віконні функції `ROW_NUMBER`, `RANK`, `DENSE_RANK`
 
 **Агрегатні віконні функції** SQL дозволяють агрегувати дані всередині певного вікна
 або діапазону рядків, визначеного за допомогою віконного виразу.
@@ -827,7 +827,7 @@ FROM daily_sales
 
 
 
-### SQL ін'єкції - що таке, як захиститись? [❄️9/100]
+### SQL ін'єкції - що таке, як захиститись? [💡10/100]
 
 **SQL-ін'єкції** — це один із найпоширеніших типів атак на базу даних, коли зловмисник 
 вставляє шкідливий SQL-код у запит, що виконується сервером.
@@ -868,7 +868,7 @@ user = User.objects.filter(id=user_input).first()  # ORM escapes input automatic
 - Логування та моніторинг запитів допоможуть вчасно виявити підозрілу активність.
 
 
-### View, Materialised View [❄️6/100]
+### View, Materialised View
 
 У SQL **View** (представлення) та **Materialized View** (матеріалізоване представлення) — 
 це способи роботи з даними, що полегшують доступ до складних запитів
@@ -917,7 +917,7 @@ SELECT * FROM monthly_sales; -- Query Materialized View
 
 
 
-### `EXPLAIN` та `EXPLAIN ANALYZE` [🔥32/100]
+### `EXPLAIN` та `EXPLAIN ANALYZE` [🔥33/100]
 
 `EXPLAIN` - це команда, яка надає інформацію про план виконання запиту.
 Вона показує, як база даних планує виконати запит, включаючи індекси,
@@ -949,7 +949,7 @@ Seq Scan on employees (cost=0.00..12.50 rows=3 width=100)
 
 
 
-### PostgreSQL Row-Level Security [❄️3/100]
+### PostgreSQL Row-Level Security
 
 *Summary*
 > Row-Level Security (RLS) - вбудований у Postgres механізм фільтрації рядків
@@ -1079,7 +1079,7 @@ PostgreSQL](https://www.crunchydata.com/blog/row-level-security-for-tenants-in-p
 
 
 
-### `SET LOCAL` vs `SET`: contamination з'єднання у pool [❄️1/100]
+### `SET LOCAL` vs `SET`: contamination з'єднання у pool
 
 *Summary*
 > `SET LOCAL` встановлює GUC лише до кінця поточної транзакції; `SET` (без
@@ -1181,7 +1181,7 @@ async def test_tenant_context_not_leaked_across_acquires(pool):
 
 
 
-### Пагінація: `OFFSET`/`LIMIT` проти keyset [❄️3/100]
+### Пагінація: `OFFSET`/`LIMIT` проти keyset
 
 *Summary*
 > `OFFSET N LIMIT k` змушує БД прочитати й відкинути перші `N` рядків, тому глибокі сторінки 
