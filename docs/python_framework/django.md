@@ -760,6 +760,34 @@ Order.objects.filter(quantity__gt=F("product__stock"))
 для оновлюваних полів (при `update()` вони взагалі не викликаються), і вираз обчислюється
 в БД, тож типи мають бути сумісними на боці СУБД.
 
+**`Func`, `Case`/`When`, `ExpressionWrapper`.** Поряд із `F()` ORM дає вирази, що
+генерують SQL замість обчислень у Python. `Func` обгортає SQL-функцію (`UPPER`, `CONCAT`,
+або кастомну через підклас із `function`/`template`); `Case`/`When` - умовний вираз
+(`CASE WHEN`); `ExpressionWrapper` потрібен, коли Django не може вивести тип результату
+(множення різних полів) - тоді явно вказують `output_field`:
+
+```python
+from django.db.models import F, Case, When, Value, ExpressionWrapper, DecimalField, CharField
+from django.db.models.functions import Now
+
+Product.objects.annotate(
+    stock_value=ExpressionWrapper(F("price") * F("stock"), output_field=DecimalField()),
+    availability=Case(
+        When(stock=0, then=Value("out")),
+        default=Value("in_stock"),
+        output_field=CharField(),
+    ),
+)
+
+# DB-side timestamp on a bulk update (NOW() in SQL, not Python's timezone.now()):
+MyModel.objects.filter(active=True).update(updated_at=Now())
+```
+
+Нюанси: ці вирази не серіалізуються в DRF (`F("views") + 1` не передати у відповідь -
+це вираз, а не значення; лише `filter`/`update`/`annotate`); набір SQL-функцій залежить
+від СУБД (частина працює в Postgres, але не в SQLite - перевіряти, якщо тести на SQLite).
+
+
 
 ### Що робить `select_for_update`
 
@@ -802,6 +830,8 @@ with transaction.atomic():
 - якщо завдання дозволяє, не обробляти в view, а перевести генерацію відповіді в асинхронну таску
 - використовувати віконні функції, `LATERAL JOIN`
 - уникати `order_by("?")`
+- для масових записів - `bulk_create`/`bulk_update` (один `INSERT`/`UPDATE` замість циклу `save()`) і `QuerySet.update()` з `F()`-виразами замість read-modify-write у Python
+- для ітерації по великих вибірках - `.iterator(chunk_size=...)` (не тримає весь результат у пам'яті й не кешує QuerySet); перевірку наявності робити `.exists()`, а не `len()`/`count()`
 
 Якщо дані не часто міняються, або є великі запити які довго обробляють дані,
 можна додати кешування.
