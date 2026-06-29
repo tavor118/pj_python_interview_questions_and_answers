@@ -191,6 +191,92 @@ mapper_registry.map_imperatively(User, user_table)
 
 
 
+### Мапінг агрегату на таблиці: складені й сурогатні ключі
+
+*Summary*
+> Агрегат із вкладеними сутностями і колекціями value object'ів треба покласти в
+> реляційну схему, не ламаючи інкапсуляції й persistence ignorance. Ключові прийоми:
+> ID дочірньої сутності унікальний лише в межах агрегату, тож її первинний ключ -
+> **складений** (`(child_id, root_id)`); колекція value object'ів не має ключа взагалі,
+> тож для неї вводять **сурогатний** автоінкремент; одиничний value object мапиться в
+> колонки батьківської таблиці (`composite()`), а не в окрему таблицю-сутність.
+
+**ID дочірньої сутності унікальний лише в межах агрегату.** За правилами DDD ID
+aggregate root'а унікальний на рівні всієї системи, а ID дочірньої сутності - лише в
+межах свого агрегату. Два різних агрегати `Menu` можуть мати `Section` з `id=1` - це
+різні сутності зі спільним локальним ID. Якщо первинним ключем таблиці секцій зробити
+сам `section_id`, то `DELETE WHERE id=1` видалить секцію з **усіх** меню. Рішення -
+складений первинний ключ `(section_id, menu_id)`; для глибше вкладеної сутності
+(`item` усередині `section` усередині `menu`) - `(item_id, section_id, menu_id)`.
+
+```python
+from sqlalchemy import Table, Column, Integer, String, ForeignKey, PrimaryKeyConstraint
+
+section_table = Table(
+    "menu_sections", metadata,
+    Column("id", Integer, nullable=False),
+    Column("menu_id", ForeignKey("menus.id"), nullable=False),
+    Column("name", String),
+    PrimaryKeyConstraint("id", "menu_id"),   # id unique only within one menu
+)
+```
+
+Альтернатива складеному ключу - **сурогатний** автоінкремент-ключ (колонка, про яку
+домен не знає). Навіщо це навіть коли ID - це UUID без ризику колізій: заради
+**persistence ignorance**. Домен має лишатися вільним змінити стратегію ID з UUID на
+інкремент у межах агрегату (1..N усередині кожного) без ризику колізій ключів у схемі -
+складений чи сурогатний ключ гарантує глобальну унікальність попри неунікальні локальні ID.
+
+**Колекція value object'ів - сурогатний ключ.** Список value object'ів
+(`dinner_ids: list[DinnerId]`) не має ідентичності взагалі. Щоб відтворити ту саму
+колекцію точно, дочірня таблиця потребує сурогатного автоінкремент-ключа - покладатися
+на унікальність самого значення VO не можна.
+
+```python
+dinner_id_table = Table(
+    "menu_dinner_ids", metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),  # VO has no key of its own
+    Column("menu_id", ForeignKey("menus.id"), nullable=False),
+    Column("dinner_id", String, nullable=False),
+)
+```
+
+**Одиничний value object - у колонки батьківської таблиці.** VO, що є атрибутом
+агрегату (а не колекцією), мапиться в колонки власника, не в окрему таблицю-сутність.
+У SQLAlchemy це `composite()` (кілька колонок → один VO-об'єкт); для VO з одного
+значення - `TypeDecorator`.
+
+```python
+from dataclasses import dataclass
+from sqlalchemy.orm import composite
+
+@dataclass(frozen=True)
+class Address:
+    street: str
+    city: str
+
+mapper_registry.map_imperatively(
+    Order, order_table,
+    properties={"address": composite(Address, order_table.c.street, order_table.c.city)},
+)
+```
+
+**Реконструкція в обхід публічного API.** ORM матеріалізує агрегат, не проходячи через
+його конструктор і методи, тож домен може тримати колекції інкапсульованими (приватний
+`_items`, назовні - лише read-only), а мапер усе одно їх наповнює. SQLAlchemy створює
+екземпляри через `__new__` і **не викликає `__init__`** при завантаженні - тому, на
+відміну від ORM, що вимагають конструктора без аргументів, імперативний мапінг адресує
+приватні атрибути напряму, а публічний API лишається інкапсульованим. Видалення root'а
+має каскадно видаляти його дочірні сутності (одна транзакція - одна межа):
+`cascade="all, delete-orphan"` на relationship.
+
+*Links*
+
+- [SQLAlchemy docs: Composite Column Types](https://docs.sqlalchemy.org/en/20/orm/composites.html)
+- [`architecture/ddd.md`](../architecture/ddd.md) - проєктування агрегату, Next Identity
+
+
+
 ### Lazy vs Eager loading: стратегії завантаження relationship
 
 *Summary*

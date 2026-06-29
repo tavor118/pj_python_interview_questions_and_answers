@@ -100,10 +100,81 @@ Cкладається з двох основних протоколів
 - Реєстровані порти (1024-49151): Призначені для використання додатками, які потребують реєстрації.
 - Динамічні або приватні порти (49152-65535): Призначені для тимчасового використання користувацькими процесами.
 
-**Сокет** - це кінцева точка зв'язку в мережі, що дозволяє додаткам взаємодіяти через мережу.
-Сокет складається з IP-адреси та порту і може бути використаний для встановлення з'єднань 
-між двома вузлами - `http://127.0.0.1:8000/`.
-Сокети можуть бути серверними та клієнтськими.
+
+
+### Сокети
+
+*Summary*
+> **Сокет** - кінцева точка двостороннього мережевого зв'язку й водночас об'єкт
+> операційної системи (файловий дескриптор). З'єднання однозначно визначає **п'ятірка**
+> `(протокол, локальний IP, локальний порт, віддалений IP, віддалений порт)`, тому на
+> одному порту сервера співіснують тисячі одночасних з'єднань. Тип сокета задає протокол:
+> `SOCK_STREAM` - TCP (надійний потік байтів), `SOCK_DGRAM` - UDP (датаграми без гарантій).
+
+**Сокет як дескриптор.** Сокет - такий самий файловий дескриптор, як відкритий файл чи
+pipe, тож над ним працюють `read`/`write` і, головне, механізми мультиплексування
+([`select`/`epoll`](../python/async.md)). Саме тому один потік у `epoll_wait` обслуговує
+десятки тисяч сокетів - це основа [C10k](../python/async.md) і event loop.
+
+**Сімейство адрес і тип.** Сокет створюють із сімейством адрес і типом:
+
+- `AF_INET` / `AF_INET6` - IPv4 / IPv6; `AF_UNIX` - локальний сокет (файл у ФС, без мережі).
+- `SOCK_STREAM` (TCP) - надійний упорядкований потік байтів; `SOCK_DGRAM` (UDP) - окремі датаграми без встановлення з'єднання.
+
+**Життєвий цикл (TCP).** Сервер і клієнт проходять різні послідовності викликів:
+
+| Сервер | Клієнт |
+| --- | --- |
+| `socket()` - створити | `socket()` - створити |
+| `bind()` - прив'язати до `(IP, порт)` | |
+| `listen()` - відкрити чергу з'єднань | |
+| `accept()` - зняти з'єднання з черги | `connect()` - встановити з'єднання |
+| `recv()` / `send()` | `send()` / `recv()` |
+| `close()` | `close()` |
+
+Ключовий нюанс: `accept()` повертає **новий** сокет на кожне з'єднання - саме через нього
+йде обмін з конкретним клієнтом; слухаючий сокет лише приймає нові з'єднання й сам даних
+не передає.
+
+```python
+import socket
+
+# Minimal TCP echo server
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # reuse a port stuck in TIME_WAIT
+server.bind(("127.0.0.1", 8000))
+server.listen()
+conn, addr = server.accept()    # blocks until a client connects; conn is a NEW socket
+with conn:
+    data = conn.recv(1024)      # blocks until bytes arrive (b"" on clean close)
+    conn.sendall(data)          # echo back
+```
+
+```python
+# Client
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(("127.0.0.1", 8000))
+client.sendall(b"ping")
+print(client.recv(1024))        # b"ping"
+client.close()
+```
+
+**Блокуючий проти неблокуючого.** За замовчуванням сокет блокуючий: `recv()`/`accept()`
+паркують потік у ядрі, поки не з'являться дані чи з'єднання. `sock.setblocking(False)`
+робить виклики такими, що одразу повертають керування (або кидають помилку, якщо даних
+ще нема) - це і дозволяє одному потоку через `epoll` стежити за багатьма сокетами
+одночасно (деталі - [блокуюче проти неблокуючого I/O](../python/files_and_io.md)).
+
+**Практичні нюанси.**
+
+- `recv(n)` повертає **до** `n` байтів, не рівно `n`: TCP - це потік без меж повідомлень, тож великі дані дочитують у циклі, а межі повідомлень визначають самостійно (префікс-довжина чи роздільник). Порожній `b""` означає, що інша сторона коректно закрила з'єднання.
+- `sendall()` гарантує відправку всіх байтів, тоді як `send()` може відправити лише частину й повернути їх кількість.
+- `SO_REUSEADDR` дозволяє знову прив'язатися до порту, що висить у стані `TIME_WAIT` після попереднього закриття; інакше рестарт сервера падає з `Address already in use`.
+
+*Links*
+
+- [Python docs: socket - Low-level networking interface](https://docs.python.org/3/library/socket.html)
+- [Beej's Guide to Network Programming](https://beej.us/guide/bgnet/)
 
 
 
@@ -1211,7 +1282,25 @@ Access-Control-Allow-Methods: GET, POST, PUT
 
 Порівняно з редакцією 2021: Injection опустився з №3 на №5, додалися Software Supply
 Chain Failures і Mishandling of Exceptional Conditions. Окремі ризики детальніше розкриті
-у розділах "XSS", "CSRF-token" і "CORS" вище.
+у розділах "XSS", "CSRF-token" і "CORS".
+
+**OWASP API Security Top 10 (2023)** - окремий рейтинг саме для **API** (не вебсторінок):
+ризики API мають свою специфіку, тож список відрізняється від основного. Десятка:
+
+1. **API1 Broken Object Level Authorization (BOLA)** - доступ до чужого об'єкта за його `id` без перевірки власника (≈ IDOR); найпоширеніша API-вразливість.
+2. **API2 Broken Authentication** - слабка автентифікація чи керування токенами, brute-force без rate-limit.
+3. **API3 Broken Object Property Level Authorization (BOPLA)** - доступ або зміна окремих **полів** об'єкта без перевірки прав (mass assignment + надмірна видача даних).
+4. **API4 Unrestricted Resource Consumption** - брак лімітів (rate, size, pagination) -> DoS і перевитрати.
+5. **API5 Broken Function Level Authorization (BFLA)** - виклик адмін-ендпоінтів звичайним користувачем.
+6. **API6 Unrestricted Access to Sensitive Business Flows** - автоматизоване зловживання легітимним сценарієм (скупка квитків ботами).
+7. **API7 Server-Side Request Forgery (SSRF)** - сервер за URL від клієнта ходить у внутрішню мережу.
+8. **API8 Security Misconfiguration** - дефолтні налаштування, відкритий CORS, відсутні security-заголовки.
+9. **API9 Improper Inventory Management** - забуті чи недокументовані версії й ендпоінти (shadow/zombie API).
+10. **API10 Unsafe Consumption of APIs** - сліпа довіра до даних від сторонніх API.
+
+*Links*
+
+- [OWASP API Security Top 10](https://owasp.org/API-Security/editions/2023/en/0x11-t10/)
 
 
 
