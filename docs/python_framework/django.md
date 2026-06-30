@@ -639,6 +639,32 @@ for book in books:
         print(author.name)
 ```
 
+**Об'єкт `Prefetch` і фільтрація в циклі.** Фільтрація вже завантаженої колекції
+*в циклі* скасовує prefetch - на кожен рядок іде новий запит (повертається N+1):
+
+```python
+stores = Store.objects.prefetch_related('books')        # 2 queries
+for store in stores:
+    expensive = store.books.filter(price__gte=250)      # +1 query per store -> N+1
+```
+
+`.filter(...)` будує **новий** QuerySet, а prefetch кешує лише незмінений
+`store.books.all()`. Щоб відфільтрувати на рівні БД і зберегти prefetch - передати
+фільтрований QuerySet в об'єкт `Prefetch`:
+
+```python
+from django.db.models import Prefetch
+
+stores = Store.objects.prefetch_related(
+    Prefetch('books', queryset=Book.objects.filter(price__gte=250)),
+)                                                       # back to 2 queries
+for store in stores:
+    expensive = store.books.all()                       # uses the prefetched cache
+```
+
+`to_attr='expensive_books'` дозволяє покласти результат в окремий атрибут, не
+затираючи повний `store.books`.
+
 
 
 ### `Subquery`, `OuterRef`, `annotate`
@@ -835,6 +861,37 @@ with transaction.atomic():
 
 Якщо дані не часто міняються, або є великі запити які довго обробляють дані,
 можна додати кешування.
+
+
+
+### Кешування в Django
+
+*Summary*
+> Django має вбудований cache framework з кількома **рівнями гранулярності** (від усього
+> сайту до окремого значення) і змінними **бекендами**, які налаштовують у `CACHES`.
+
+**Рівні кешування** (від грубого до тонкого):
+
+- **Per-site** - `UpdateCacheMiddleware` + `FetchFromCacheMiddleware` кешують кожну сторінку
+  цілком. Найпростіше, але грубо: підходить лише для майже статичних сайтів.
+- **Per-view** - декоратор `@cache_page(60 * 15)` на в'юсі кешує її відповідь.
+- **Template fragment** - тег `{% cache 600 sidebar %}...{% endcache %}` кешує частину шаблону.
+- **Low-level cache API** - найгнучкіше: `cache.get(key)` / `cache.set(key, value, timeout)` /
+  `cache.get_or_set(...)` для кешування довільних об'єктів (результат важкого запиту тощо).
+
+**Бекенди** (`CACHES['default']['BACKEND']`):
+
+- **`LocMemCache`** - дефолт: кеш у пам'яті процесу. Per-process - кожен worker/процес має
+  власну копію, тож між ними не ділиться; для multi-worker prod не годиться.
+- **Memcached / Redis** - зовнішнє спільне сховище в пам'яті: один кеш на всі процеси й хости.
+  Стандарт для production (`PyMemcacheCache`, `django.core.cache.backends.redis.RedisCache`).
+- **Database** (`DatabaseCache`) - кеш у таблиці БД; добре лише при швидкому індексованому сервері.
+- **Filesystem** (`FileBasedCache`) - значення як окремі файли.
+- **Dummy** - нічого не кешує; для локальної розробки, щоб логіка кешу не заважала.
+
+Найчастіша помилка - покладатися на `LocMemCache` для інвалідації/лічильників у проді з кількома
+воркерами: дані не консистентні між процесами. Питання масової одночасної інвалідації (cache
+stampede) і staggered TTL - див. [`architecture_patterns.md`](../architecture/architecture_patterns.md).
 
 
 

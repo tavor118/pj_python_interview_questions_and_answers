@@ -326,6 +326,41 @@ SELECT * FROM subordinates;
 SELECT EXISTS (SELECT 1 FROM orders WHERE user_id = 42);
 ```
 
+**`IN` проти `EXISTS`.** Обидва виражають semi-join ("чи є відповідний рядок"). `IN (підзапит)`
+зіставляє значення зі списком, який повертає підзапит; корельований `EXISTS` зупиняється на
+першому збігу. Старе правило "`EXISTS` завжди швидший" застаріле - сучасні планувальники
+(PostgreSQL та ін.) часто переписують `IN`, `EXISTS` і `= ANY(...)` в один і той самий
+semi-join план. Тож обирають за читабельністю й семантикою, а не за уявною продуктивністю.
+
+**Проблема `NOT IN` з `NULL`.** Якщо підзапит (або список) повертає хоча б один `NULL`,
+`NOT IN` дає **порожній результат**. Причина - тризначна логіка: `x NOT IN (1, NULL)` =
+`x <> 1 AND x <> NULL`, а `x <> NULL` - це `UNKNOWN`, тому весь вираз ніколи не стає `TRUE`.
+
+```sql
+-- if any banned_user_id is NULL, this returns ZERO rows, silently
+SELECT * FROM users WHERE id NOT IN (SELECT banned_user_id FROM bans);
+
+-- NOT EXISTS is immune to the NULL trap and usually optimizes the same
+SELECT * FROM users u WHERE NOT EXISTS (
+    SELECT 1 FROM bans b WHERE b.banned_user_id = u.id
+);
+```
+
+Тому для заперечення майже завжди надають перевагу `NOT EXISTS` (або `LEFT JOIN ... WHERE
+... IS NULL`), а не `NOT IN`.
+
+**`ANY` / `ALL` з підзапитом.** Порівнюють значення з **набором**, що повертає підзапит.
+`x op ANY (...)` істинне, якщо `op` істинне хоча б для одного значення набору; `x op ALL (...)` -
+якщо для кожного. Звідси класична еквівалентність: `x < ANY (...)` = "менше за максимум",
+`x < ALL (...)` = "менше за мінімум" (і навпаки для `>`). `= ANY (...)` тотожне `IN (...)`,
+а `<> ALL (...)` - `NOT IN (...)` (з тією самою проблемою щодо `NULL`).
+
+```sql
+-- books cheaper than the most expensive of per-author minimum prices
+SELECT author, title, price FROM book
+WHERE price < ANY (SELECT MIN(price) FROM book GROUP BY author);
+```
+
 
 
 ### Агрегатні функції і `GROUP BY` [💡14/100]

@@ -231,6 +231,28 @@ config = _Config()   # initialized once at import time
 самий екземпляр. Об'єкти на кшталт `None`, `True`, `False` - не зовсім singleton'и, а 
 "well-known objects": це не клас, а конкретний унікальний об'єкт, гарантовано один на процес.
 
+**Monostate / Borg.** Альтернатива до Singleton (Alex Martelli): замість обмеження кількості
+екземплярів дозволяють створювати скільки завгодно об'єктів, але всі вони **поділяють спільний
+стан**. Досягається підміною `self.__dict__` на спільний для класу словник - усі атрибути читаються
+й пишуться в одну й ту саму таблицю.
+
+```python
+class Borg:
+    _shared_state = {}
+
+    def __init__(self):
+        self.__dict__ = self._shared_state   # every instance shares one __dict__
+
+
+a, b = Borg(), Borg()
+a.x = 42
+print(b.x)        # 42 - different objects (a is not b), shared state
+```
+
+На відміну від Singleton, тут `a is not b` (identity різна), що буває зручніше: код, який очікує
+звичайні екземпляри, працює без змін, а стан лишається спільним. Недолік той самий, що в будь-якого
+глобального стану - неявне зв'язування й проблеми з тестами.
+
 *Links*
 
 - [Creating a singleton in Python](https://stackoverflow.com/questions/6760685/creating-a-singleton-in-python)
