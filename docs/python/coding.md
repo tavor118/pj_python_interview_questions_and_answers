@@ -339,7 +339,7 @@ print_tree(copied_tree)  # Checking the copied tree
 
 
 
-### Спискові і словникові вирази [💡22/100]
+### Спискові і словникові вирази [💡24/100]
 
 ```python
 A0 = dict(zip(('a', 'b', 'c', 'd', 'e'), (1, 2, 3, 4, 5)))  

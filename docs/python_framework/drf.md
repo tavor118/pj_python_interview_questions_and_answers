@@ -1,6 +1,6 @@
 ## DRF
 
-### Як працює Serializer в Django REST Framework
+### Як працює Serializer в Django REST Framework [💡10/100]
 
 **Serializer** перетворює інформацію, що зберігається в базі даних і визначається 
 за допомогою моделей Django, в формат JSON для передачі через API.

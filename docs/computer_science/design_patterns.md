@@ -198,7 +198,7 @@ sql = connection.ops.quote_name("users")  # another product, same backend
 
 
 
-### Builder (Будівельник) [💡15/100]
+### Builder (Будівельник) [💡16/100]
 
 *Summary*
 > Породжувальний патерн: відокремлює конструювання складного об'єкта від його представлення,
@@ -312,7 +312,7 @@ print(base_config["hooks"], job["hooks"])  # [] ['notify']
 
 
 
-### Singleton (Одинак) [💡27/100]
+### Singleton (Одинак) [💡28/100]
 
 *Summary*
 > Породжувальний патерн: гарантує, що клас має лише один екземпляр, і надає глобальну точку
@@ -371,7 +371,7 @@ print("logging" in sys.modules)  # True - the imported module is itself a single
 
 
 
-### Adapter (Адаптер) [💡11/100]
+### Adapter (Адаптер) [💡12/100]
 
 *Summary*
 > Структурний патерн: перетворює інтерфейс одного класу на інтерфейс, який очікує клієнт.
@@ -1199,7 +1199,7 @@ print(o.state)  # paid - which actions are allowed now depends on the state
 
 
 
-### Strategy (Стратегія) [💡15/100]
+### Strategy (Стратегія) [💡16/100]
 
 *Summary*
 > Поведінковий патерн: визначає сімейство взаємозамінних алгоритмів за спільним інтерфейсом і

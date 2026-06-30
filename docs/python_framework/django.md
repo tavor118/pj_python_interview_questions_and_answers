@@ -36,7 +36,7 @@
 
 
 
-### Django ORM [🔥34/100]
+### Django ORM [🔥36/100]
 
 **Django ORM (Object-Relational Mapping)** — це компонент Django,
 який дозволяє взаємодіяти з базою даних, використовуючи об'єктно-орієнтовані моделі,
@@ -177,7 +177,7 @@ products = Product.objects.annotate(
 
 
 
-### `QuerySet`
+### `QuerySet` [💡10/100]
 
 *Summary*
 > **QuerySet** - набір об'єктів моделі, який представляє SQL-запит до БД у
@@ -402,7 +402,7 @@ python manage.py migrate
 
 
 
-### Види наслідування моделей [💡12/100]
+### Види наслідування моделей [💡14/100]
 
 Існують три основні стилі успадкування
 
@@ -603,7 +603,7 @@ for book in books:
 ```
 
 
-### Різниця між `select_related` та `prefetch_related` [💡25/100]
+### Різниця між `select_related` та `prefetch_related` [💡28/100]
 
 У Django, `select_related` та `prefetch_related` — це два методи, які використовуються
 для оптимізації запитів до бази даних з метою зменшення кількості виконаних запитів і 
@@ -895,7 +895,7 @@ stampede) і staggered TTL - див. [`architecture_patterns.md`](../architectur
 
 
 
-### Що таке сигнали? Навіщо вони потрібні? Назвіть основні.
+### Що таке сигнали? Навіщо вони потрібні? Назвіть основні. [💡12/100]
 
 Сигнали - це події в екосистемі Django. За допомогою сигналів підсистеми сповіщають
 додаток про те, що сталося.
@@ -945,7 +945,7 @@ with transaction.atomic():
 
 
 
-### Request - Response lifecycle [💡12/100]
+### Request - Response lifecycle [💡13/100]
 
 У Django запит представлено як екземпляр класу `HttpRequest`. Об'єкт `HttpRequest` 
 містить інформацію про запит користувача - метод HTTP (наприклад, GET, POST),
@@ -1003,7 +1003,7 @@ Django Part
 
 
 
-### Що таке Middleware, для чого, як реалізується [💡18/100]
+### Що таке Middleware, для чого, як реалізується [💡21/100]
 
 **Middleware** - це проміжний шар, який реалізований як об'єкт, який обробляє вхідний
 запит або вихідну відповідь (як і view). Наприклад, він може додавати заголовки,
@@ -1048,7 +1048,7 @@ MIDDLEWARE = [
 
 
 
-### Основні Middleware [💡11/100]
+### Основні Middleware [💡14/100]
 
 - `SecurityMiddleware` - додає security-заголовки до відповіді: `Strict-Transport-Security` (HSTS) через `SECURE_HSTS_SECONDS`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Cross-Origin-Opener-Policy`. Опційно робить редирект `HTTP → HTTPS` при `SECURE_SSL_REDIRECT = True`. Сам HTTPS-termination відбувається на рівні reverse proxy / web server (Nginx, ALB) - middleware лише примушує клієнта переключитися.
 - `SessionMiddleware` - дозволяє використовувати сесії, щоб зберігати інформацію між запитами. Він створює та зберігає сесійні файли та додає інформацію про сесію - додає до запиту об'єкт `session`.

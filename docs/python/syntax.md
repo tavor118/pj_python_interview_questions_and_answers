@@ -1,6 +1,6 @@
 ## Syntax - Синтаксис
 
-### Що таке PEP 8?
+### Що таке PEP 8? [💡12/100]
 
 PEP означає Python Enhancement Proposal (Пропозиція щодо покращення Python). 
 Це набір правил, які визначають, як писати та форматувати код Python для досягнення 
@@ -36,7 +36,7 @@ PEP означає Python Enhancement Proposal (Пропозиція щодо п
 
 
 
-### Що таке list/dict comprehension? [💡16/100]
+### Що таке list/dict comprehension? [💡19/100]
 
 List comprehension та dict comprehension - це спосіб створення списків та словників. 
 Являють собою вираз, загорнений у квадратні/фігурні дужки, у якому використовуються 

@@ -360,7 +360,7 @@ stmt = select(Post).options(
 
 
 
-### `Session` vs `sessionmaker`
+### `Session` vs `sessionmaker` [💡12/100]
 
 *Summary*
 > `Session` - unit of work, що тримає identity map, трекає зміни і flush'ить
