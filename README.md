@@ -52,5 +52,18 @@ mkdocs serve
 Go to http://127.0.0.1:8000/python-questions-and-answers/
 
 
+## Scripts
+
+`docs/top_questions.md` is **auto-generated** — do not edit it by hand. It is built by
+`scripts/generate_top_questions.py`, which ranks the wiki sections by their popularity
+badges (`🔥N/100` / `💡N/100`) and inlines the top 100 with their answers. To refresh it,
+edit the underlying section in its source file and regenerate:
+
+```shell
+python3 scripts/generate_top_questions.py        # top 100 -> docs/top_questions.md
+python3 scripts/generate_top_questions.py --top 50
+```
+
+
 ## Useful links
 

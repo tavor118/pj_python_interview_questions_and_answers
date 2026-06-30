@@ -5,6 +5,7 @@ site_url: https://tavor118.github.io/python-questions-and-answers
 
 nav:
   - Introduction: index.md
+  - Top 100 Questions: top_questions.md
   - Python:
     - python.md
     - General: python/general.md
